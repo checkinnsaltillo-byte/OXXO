@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Directorio RME México</title>
+<style>
+:root{--verde:#1f4e46;--verde2:#2f7a6c;--tinta:#1c2422;--gris:#66736f;--linea:#dfe5e2;--fondo:#f4f6f4;--papel:#fff;--acento:#e8a33d;--suave:#eaf2ef}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--tinta);background:var(--fondo)}
+header{background:var(--verde);color:#fff;padding:14px 20px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:30}
+header h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.1px}
+header .sub{font-size:12px;opacity:.8;margin-top:2px}
+header .esp{flex:1;min-width:10px}
+.btn{border:1px solid var(--linea);background:var(--papel);color:var(--tinta);border-radius:8px;padding:8px 13px;font:inherit;font-weight:600;cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:7px}
+.btn:hover{border-color:var(--verde2)}
+.btn.pri{background:var(--acento);border-color:var(--acento);color:#2a1c00;font-size:15px;padding:10px 18px}
+.btn.pri:hover{filter:brightness(1.06)}
+.btn.pri[disabled]{opacity:.65;cursor:default;filter:none}
+.btn.claro{background:transparent;color:#fff;border-color:rgba(255,255,255,.35)}
+#avance{background:#173b35;color:#fff;padding:9px 20px;display:none;font-size:13px;position:sticky;top:0;z-index:29}
+#avance .barra{height:6px;background:rgba(255,255,255,.18);border-radius:4px;margin-top:6px;overflow:hidden}
+#avance .barra i{display:block;height:100%;width:0;background:var(--acento);transition:width .5s}
+#avance.error{background:#8f2d22}#avance.ok{background:#2f7a6c}
+main{padding:16px 20px 60px;max-width:1700px;margin:0 auto}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:var(--papel);border:1px solid var(--linea);border-radius:10px;padding:11px 14px}
+.kpi b{display:block;font-size:24px;font-weight:650;color:var(--verde)}
+.kpi span{font-size:12px;color:var(--gris)}
+.filtros{background:var(--papel);border:1px solid var(--linea);border-radius:10px;padding:11px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.filtros input[type=search]{flex:1 1 230px;min-width:180px;border:1px solid var(--linea);border-radius:8px;padding:8px 11px;font:inherit}
+.ms{position:relative}
+.ms>button{max-width:230px;overflow:hidden;text-overflow:ellipsis}
+.ms>button.on,.chipf.on{background:var(--suave);border-color:var(--verde2);color:var(--verde)}
+.ms .panel{display:none;position:absolute;top:calc(100% + 4px);left:0;background:var(--papel);border:1px solid var(--linea);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.14);padding:6px;min-width:270px;max-height:340px;overflow:auto;z-index:20}
+.ms.abierto .panel{display:block}
+.op{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:6px;cursor:pointer;user-select:none}
+.op:hover{background:var(--fondo)}
+.op .n{margin-left:auto;color:var(--gris);font-size:12px}
+.pal{width:18px;height:18px;border:1.5px solid #9aa7a3;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;color:#fff;flex:none}
+.sel>.pal,.on>.pal{background:var(--verde2);border-color:var(--verde2)}
+.sel>.pal::after,.on>.pal::after{content:"✓"}
+.chipf{font-weight:500}
+.pestanas{display:flex;gap:4px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.pestanas .tab{border:0;background:transparent;padding:8px 14px;border-radius:8px;font:inherit;font-weight:600;color:var(--gris);cursor:pointer}
+.pestanas .tab.on{background:var(--verde);color:#fff}
+.pestanas .cuenta{margin-left:auto;color:var(--gris);font-size:13px}
+.caja{background:var(--papel);border:1px solid var(--linea);border-radius:10px;overflow:auto;max-height:calc(100vh - 150px)}
+table{border-collapse:collapse;width:100%}
+th,td{padding:8px 10px;border-bottom:1px solid var(--linea);text-align:left;vertical-align:top}
+th{position:sticky;top:0;background:#eef2f0;font-size:12px;text-transform:uppercase;letter-spacing:.3px;color:#44524e;white-space:nowrap;z-index:5}
+th.ord{cursor:pointer}th.ord:hover{color:var(--verde)}
+#tabla td{max-width:300px}
+#tabla tbody tr{cursor:pointer}#tabla tbody tr:hover{background:#f7faf8}
+.tag{display:inline-block;background:var(--suave);color:var(--verde);border-radius:5px;padding:1px 7px;margin:1px 3px 1px 0;font-size:12px;white-space:nowrap}
+.tag.r{background:#f3efe4;color:#6a5417}
+.est{font-size:12px;font-weight:600;border-radius:20px;padding:2px 9px;white-space:nowrap}
+.est.Nuevo{background:#dff3e3;color:#1c6b33}.est.Actualizado{background:#e3ecfb;color:#234f9c}.est.Sin{background:#eceeed;color:#59625f}.est.resp{background:#fbe6e2;color:#9b3023}
+.tenue{color:var(--gris)}.nowrap{white-space:nowrap}
+a{color:#17605a}
+.pie{display:flex;gap:10px;align-items:center;justify-content:flex-end;padding:10px 2px;color:var(--gris);font-size:13px}
+.piv-ctl{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.piv-ctl label{font-size:13px;color:var(--gris)}
+select{font:inherit;border:1px solid var(--linea);border-radius:8px;padding:7px 9px;background:var(--papel)}
+#pivote td,#pivote th{text-align:right;white-space:nowrap}
+#pivote td:first-child,#pivote th:first-child{text-align:left;position:sticky;left:0;background:var(--papel);font-weight:600}
+#pivote th:first-child{background:#eef2f0;z-index:6}
+#pivote tr.tot td{font-weight:700;background:#eef2f0;position:sticky;bottom:0}
+#pivote th.v{writing-mode:vertical-rl;transform:rotate(180deg);text-align:left;vertical-align:bottom;max-height:170px;white-space:nowrap}
+.vacio{padding:50px 20px;text-align:center;color:var(--gris)}
+#modal{position:fixed;inset:0;background:rgba(20,30,28,.45);display:none;z-index:50;justify-content:flex-end}
+#modal.on{display:flex}
+#modal .hoja{background:var(--papel);width:min(560px,100%);height:100%;overflow:auto;padding:20px 22px}
+#modal h2{margin:0 0 4px;font-size:19px}
+#modal dl{display:grid;grid-template-columns:150px 1fr;gap:8px 12px;margin:16px 0}
+#modal dt{color:var(--gris);font-size:13px}#modal dd{margin:0;word-break:break-word}
+@media(max-width:640px){header{padding:12px}main{padding:12px 10px 50px}#modal dl{grid-template-columns:1fr}#modal dt{margin-top:6px}.caja{max-height:none}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Directorio de empresas · Residuos de manejo especial · México</h1>
+    <div class="sub" id="sub">Cargando…</div>
+  </div>
+  <div class="esp"></div>
+  <a class="btn claro" href="/descargar.xlsx">⬇ Descargar Excel</a>
+  <button class="btn pri" id="btnRun">▶ Ejecutar extracción</button>
+</header>
+<div id="avance"><span id="avTxt"></span><div class="barra"><i id="avBar"></i></div></div>
+<main>
+  <div class="kpis" id="kpis"></div>
+  <div class="filtros" id="filtros">
+    <input type="search" id="q" placeholder="Buscar nombre, razón social, RFC, correo, teléfono, dirección…">
+  </div>
+  <div class="pestanas">
+    <button class="tab on" data-v="tabla">Tabla</button>
+    <button class="tab" data-v="pivote">Tabla dinámica</button>
+    <span class="cuenta" id="cuenta"></span>
+  </div>
+  <section id="v-tabla">
+    <div class="caja"><table id="tabla"><thead></thead><tbody></tbody></table><div class="vacio" id="vacio" style="display:none">Sin empresas con esos filtros.</div></div>
+    <div class="pie"><button class="btn" id="ant">‹ Anterior</button><span id="pag"></span><button class="btn" id="sig">Siguiente ›</button></div>
+  </section>
+  <section id="v-pivote" style="display:none">
+    <div class="piv-ctl">
+      <label>Filas <select id="pf"></select></label>
+      <label>Columnas <select id="pc"></select></label>
+      <span class="tenue">Cuenta de empresas (según los filtros activos). Una empresa con varios valores cuenta en cada uno.</span>
+    </div>
+    <div class="caja"><table id="pivote"></table></div>
+  </section>
+</main>
+<div id="modal"><div class="hoja" id="hoja"></div></div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const lista = v => Array.isArray(v) ? v : (v ? [v] : []);
+const urlOk = u => /^https?:\/\//i.test(u || '') ? u : '';
+
+let EMP = [], CORRIDA = {}, VISTA = [];
+const F = {q: '', estados: new Set(), servicios: new Set(), residuos: new Set(), estatus: new Set(), flags: new Set()};
+const ORD = {k: 'relevancia', dir: -1};
+let PAGINA = 0; const POR_PAG = 50;
+
+const DIMS = {
+  estados: {t: 'Estado (búsqueda)', g: r => lista(r.estados_busqueda)},
+  sede: {t: 'Estado sede', g: r => [r.estado_sede || '(sin detectar)']},
+  servicios: {t: 'Servicio', g: r => lista(r.servicios)},
+  residuos: {t: 'Tipo de residuo', g: r => lista(r.residuos)},
+  aut: {t: 'Autorización / certificación', g: r => lista(r.autorizaciones).length ? lista(r.autorizaciones) : ['(ninguna)']},
+  estatus: {t: 'Estatus del mes', g: r => [r.estatus_mes || '(sin estatus)']},
+};
+const FLAGS = {tel: ['Con teléfono', r => lista(r.telefonos).length], mail: ['Con correo', r => lista(r.correos).length],
+  rs: ['Con razón social', r => r.razon_social], rfc: ['Con RFC', r => r.rfc], dir: ['Con dirección', r => r.direccion]};
+
+const COLS = [
+  {k: 'nombre', t: 'Empresa', h: r => `<b>${esc(r.nombre)}</b>${r.razon_social ? `<div class="tenue">${esc(r.razon_social)}</div>` : ''}`, o: r => norm(r.nombre)},
+  {k: 'rfc', t: 'RFC', h: r => esc(r.rfc), o: r => r.rfc || '~'},
+  {k: 'estados_busqueda', t: 'Estado', h: r => esc(lista(r.estados_busqueda).join(', ')) + (r.estado_sede ? `<div class="tenue">Sede: ${esc(r.estado_sede)}</div>` : ''), o: r => norm(lista(r.estados_busqueda)[0] || '~')},
+  {k: 'telefonos', t: 'Teléfonos', h: r => lista(r.telefonos).slice(0, 3).map(t => `<div class="nowrap">${esc(t)}</div>`).join(''), o: r => lista(r.telefonos)[0] || '~'},
+  {k: 'correos', t: 'Correos', h: r => lista(r.correos).slice(0, 2).map(c => `<div>${esc(c)}</div>`).join(''), o: r => lista(r.correos)[0] || '~'},
+  {k: 'sitio', t: 'Sitio web', h: r => urlOk(r.sitio) ? `<a href="${esc(r.sitio)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(r.sitio.replace(/^https?:\/\//, ''))}</a>` : '', o: r => r.sitio || '~'},
+  {k: 'servicios', t: 'Servicios', h: r => lista(r.servicios).map(s => `<span class="tag">${esc(s)}</span>`).join(''), o: r => -lista(r.servicios).length},
+  {k: 'residuos', t: 'Tipos de residuos', h: r => lista(r.residuos).map(s => `<span class="tag r">${esc(s)}</span>`).join(''), o: r => -lista(r.residuos).length},
+  {k: 'direccion', t: 'Dirección', h: r => esc(r.direccion), o: r => norm(r.direccion) || '~'},
+  {k: 'relevancia', t: 'Relev.', h: r => esc(r.relevancia), o: r => r.relevancia || 0},
+  {k: 'estatus_mes', t: 'Estatus', h: r => r.estatus_mes ? `<span class="est ${r.estatus_mes === 'Sin respuesta' ? 'resp' : esc(r.estatus_mes.split(' ')[0])}">${esc(r.estatus_mes)}</span>` : '', o: r => r.estatus_mes || '~'},
+  {k: 'ultima_verificacion', t: 'Verificado', h: r => `<span class="nowrap">${esc(r.ultima_verificacion)}</span>`, o: r => r.ultima_verificacion || ''},
+];
+
+// ── Filtros ──
+function pasa(r) {
+  for (const [k, d] of [['estados', DIMS.estados], ['servicios', DIMS.servicios], ['residuos', DIMS.residuos], ['estatus', DIMS.estatus]])
+    if (F[k].size && !d.g(r).some(v => F[k].has(v))) return false;
+  for (const f of F.flags) if (!FLAGS[f][1](r)) return false;
+  if (F.q) {
+    if (!r._txt) r._txt = norm([r.nombre, r.razon_social, r.rfc, r.direccion, r.sitio, r.descripcion, lista(r.correos).join(' '), lista(r.telefonos).join(' '), lista(r.telefonos).join('').replace(/\s/g, ''), lista(r.estados_busqueda).join(' ')].join(' '));
+    if (!F.q.split(/\s+/).every(p => r._txt.includes(p))) return false;
+  }
+  return true;
+}
+function armarFiltros() {
+  const cont = $('#filtros');
+  cont.querySelectorAll('.ms,.chipf,.limpiar').forEach(e => e.remove());
+  for (const [k, titulo] of [['estados', 'Estado'], ['servicios', 'Servicio'], ['residuos', 'Tipo de residuo'], ['estatus', 'Estatus']]) {
+    const cnt = new Map();
+    EMP.forEach(r => DIMS[k].g(r).forEach(v => cnt.set(v, (cnt.get(v) || 0) + 1)));
+    const vals = [...cnt.keys()].sort((a, b) => k === 'estados' ? a.localeCompare(b, 'es') : cnt.get(b) - cnt.get(a));
+    [...F[k]].forEach(v => cnt.has(v) || F[k].delete(v));
+    const ms = document.createElement('div'); ms.className = 'ms';
+    ms.innerHTML = `<button class="btn" type="button"></button><div class="panel">${vals.map(v => `<div class="op${F[k].has(v) ? ' sel' : ''}" data-v="${esc(v)}"><span class="pal"></span><span>${esc(v)}</span><span class="n">${cnt.get(v)}</span></div>`).join('')}</div>`;
+    const boton = ms.querySelector('button');
+    const rotular = () => { boton.textContent = F[k].size ? `${titulo}: ${F[k].size === 1 ? [...F[k]][0] : F[k].size + ' seleccionados'} ▾` : `${titulo} ▾`; boton.classList.toggle('on', F[k].size > 0); };
+    rotular(); ms._rotular = rotular;
+    boton.onclick = e => { e.stopPropagation(); document.querySelectorAll('.ms.abierto').forEach(o => o !== ms && o.classList.remove('abierto')); ms.classList.toggle('abierto'); };
+    ms.querySelector('.panel').onclick = e => {  // marcar no cierra ni redibuja el menú
+      e.stopPropagation(); const op = e.target.closest('.op'); if (!op) return;
+      const v = op.dataset.v; F[k].has(v) ? F[k].delete(v) : F[k].add(v);
+      op.classList.toggle('sel', F[k].has(v)); rotular(); aplicar();
+    };
+    cont.appendChild(ms);
+  }
+  for (const [f, [titulo]] of Object.entries(FLAGS)) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'btn chipf' + (F.flags.has(f) ? ' on' : '');
+    b.innerHTML = `<span class="pal"></span>${titulo}`;
+    b.onclick = () => { F.flags.has(f) ? F.flags.delete(f) : F.flags.add(f); b.classList.toggle('on', F.flags.has(f)); aplicar(); };
+    cont.appendChild(b);
+  }
+  const l = document.createElement('button'); l.type = 'button'; l.className = 'btn limpiar'; l.textContent = 'Limpiar filtros';
+  l.onclick = () => { F.q = ''; $('#q').value = ''; ['estados', 'servicios', 'residuos', 'estatus', 'flags'].forEach(k => F[k].clear()); armarFiltros(); aplicar(); };
+  cont.appendChild(l);
+}
+document.addEventListener('click', () => document.querySelectorAll('.ms.abierto').forEach(o => o.classList.remove('abierto')));
+$('#q').addEventListener('input', e => { F.q = norm(e.target.value.trim()); aplicar(); });
+
+// ── Tabla ──
+function aplicar() {
+  VISTA = EMP.filter(pasa);
+  const col = COLS.find(c => c.k === ORD.k) || COLS[0];
+  VISTA.sort((a, b) => { const x = col.o(a), y = col.o(b); return (x < y ? -1 : x > y ? 1 : 0) * ORD.dir; });
+  PAGINA = 0; pintarTabla(); pintarPivote();
+  $('#cuenta').textContent = `${VISTA.length} de ${EMP.length} empresas`;
+}
+function pintarTabla() {
+  $('#tabla thead').innerHTML = '<tr>' + COLS.map(c => `<th class="ord" data-k="${c.k}">${c.t}${ORD.k === c.k ? (ORD.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('') + '</tr>';
+  const pags = Math.max(1, Math.ceil(VISTA.length / POR_PAG)); PAGINA = Math.min(PAGINA, pags - 1);
+  const trozo = VISTA.slice(PAGINA * POR_PAG, (PAGINA + 1) * POR_PAG);
+  $('#tabla tbody').innerHTML = trozo.map(r => `<tr data-c="${esc(r.clave)}">` + COLS.map(c => `<td>${c.h(r) || ''}</td>`).join('') + '</tr>').join('');
+  $('#vacio').style.display = VISTA.length ? 'none' : 'block';
+  $('#pag').textContent = `Página ${PAGINA + 1} de ${pags}`;
+  $('#ant').disabled = PAGINA === 0; $('#sig').disabled = PAGINA >= pags - 1;
+}
+$('#tabla thead').onclick = e => { const th = e.target.closest('th'); if (!th) return; const k = th.dataset.k; if (ORD.k === k) ORD.dir *= -1; else { ORD.k = k; ORD.dir = 1; } aplicar(); };
+$('#tabla tbody').onclick = e => { const tr = e.target.closest('tr'); if (tr) ficha(EMP.find(r => r.clave === tr.dataset.c)); };
+$('#ant').onclick = () => { PAGINA--; pintarTabla(); }; $('#sig').onclick = () => { PAGINA++; pintarTabla(); };
+
+function ficha(r) {
+  if (!r) return;
+  const rd = r.redes || {}, en = u => urlOk(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u)}</a>` : esc(u);
+  const filas = [['Razón social', esc(r.razon_social)], ['RFC', esc(r.rfc)], ['Estado sede', esc(r.estado_sede)],
+    ['Aparece en búsquedas de', esc(lista(r.estados_busqueda).join(', '))], ['Cobertura mencionada', esc(lista(r.estados_mencionados).join(', '))],
+    ['Dirección', esc(r.direccion)], ['C.P.', esc(r.cp)], ['Teléfonos', esc(lista(r.telefonos).join(' · '))], ['WhatsApp', esc(rd.WhatsApp)],
+    ['Correos', lista(r.correos).map(c => `<a href="mailto:${esc(c)}">${esc(c)}</a>`).join('<br>')], ['Sitio web', en(r.sitio)],
+    ['Servicios', lista(r.servicios).map(s => `<span class="tag">${esc(s)}</span>`).join('')],
+    ['Tipos de residuos', lista(r.residuos).map(s => `<span class="tag r">${esc(s)}</span>`).join('')],
+    ['Autorizaciones', esc(lista(r.autorizaciones).join(', '))], ['Núm. de autorización', esc(r.num_autorizacion)],
+    ['Descripción', esc(r.descripcion)], ['Facebook', en(rd.Facebook)], ['LinkedIn', en(rd.LinkedIn)], ['Instagram', en(rd.Instagram)],
+    ['Google Maps', en(r.maps)], ['Relevancia', esc(r.relevancia)], ['Frases de búsqueda', esc(lista(r.frases).join(' · '))],
+    ['Estatus del mes', esc(r.estatus_mes)], ['Primera detección', esc(r.primera_deteccion)], ['Última verificación', esc(r.ultima_verificacion)], ['Fuente', esc(r.fuente)]];
+  $('#hoja').innerHTML = `<button class="btn" style="float:right" onclick="document.getElementById('modal').classList.remove('on')">Cerrar ✕</button><h2>${esc(r.nombre)}</h2><div class="tenue">${esc(r.clave)}</div><dl>` +
+    filas.filter(f => f[1]).map(f => `<dt>${f[0]}</dt><dd>${f[1]}</dd>`).join('') + '</dl>';
+  $('#modal').classList.add('on');
+}
+$('#modal').onclick = e => { if (e.target.id === 'modal') e.target.classList.remove('on'); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#modal').classList.remove('on'); });
+
+// ── Tabla dinámica ──
+function pintarPivote() {
+  const df = DIMS[$('#pf').value], kc = $('#pc').value, dc = kc ? DIMS[kc] : null;
+  const m = new Map(), totC = new Map(), totF = new Map();
+  VISTA.forEach(r => df.g(r).forEach(f => {
+    totF.set(f, (totF.get(f) || 0) + 1);
+    (dc ? dc.g(r) : ['Empresas']).forEach(c => { m.set(f + '\u0001' + c, (m.get(f + '\u0001' + c) || 0) + 1); });
+  }));
+  if (dc) VISTA.forEach(r => dc.g(r).forEach(c => totC.set(c, (totC.get(c) || 0) + 1)));
+  const filas = [...totF.keys()].sort((a, b) => totF.get(b) - totF.get(a) || a.localeCompare(b, 'es'));
+  const cols = dc ? [...totC.keys()].sort((a, b) => totC.get(b) - totC.get(a)) : ['Empresas'];
+  const max = Math.max(1, ...m.values());
+  const celda = n => n ? `<td style="background:rgba(47,122,108,${(0.08 + 0.55 * n / max).toFixed(2)})">${n}</td>` : '<td class="tenue">·</td>';
+  let h = `<thead><tr><th>${esc(df.t)}</th>` + cols.map(c => `<th class="${dc && cols.length > 6 ? 'v' : ''}">${esc(c)}</th>`).join('') + (dc ? '<th>Empresas</th>' : '') + '</tr></thead><tbody>';
+  h += filas.map(f => `<tr><td>${esc(f)}</td>` + cols.map(c => celda(m.get(f + '\u0001' + c))).join('') + (dc ? `<td><b>${totF.get(f)}</b></td>` : '') + '</tr>').join('');
+  h += `<tr class="tot"><td>Total (empresas únicas)</td>` + cols.map(c => `<td>${dc ? totC.get(c) : VISTA.length}</td>`).join('') + (dc ? `<td>${VISTA.length}</td>` : '') + '</tr></tbody>';
+  $('#pivote').innerHTML = filas.length ? h : '<tbody><tr><td class="vacio">Sin datos con esos filtros.</td></tr></tbody>';
+}
+$('#pf').innerHTML = Object.entries(DIMS).map(([k, d]) => `<option value="${k}">${d.t}</option>`).join('');
+$('#pc').innerHTML = '<option value="">(ninguna)</option>' + Object.entries(DIMS).map(([k, d]) => `<option value="${k}">${d.t}</option>`).join('');
+$('#pc').value = 'servicios'; $('#pf').onchange = $('#pc').onchange = pintarPivote;
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
+  $('#v-tabla').style.display = t.dataset.v === 'tabla' ? '' : 'none'; $('#v-pivote').style.display = t.dataset.v === 'pivote' ? '' : 'none';
+});
+
+// ── Datos y extracción ──
+const fecha = iso => iso ? new Date(iso).toLocaleString('es-MX', {dateStyle: 'medium', timeStyle: 'short'}) : '';
+const MOTORES = {places: 'Google Places API', cse: 'Google Custom Search API', importar: 'búsquedas de Google capturadas'};
+function pintarKpis() {
+  const n = f => EMP.filter(f).length, est = new Set(); EMP.forEach(r => lista(r.estados_busqueda).forEach(e => est.add(e)));
+  const k = [[EMP.length, 'Empresas'], [est.size + ' / 32', 'Estados con empresas'], [n(r => lista(r.telefonos).length), 'Con teléfono'], [n(r => lista(r.correos).length), 'Con correo'],
+    [n(r => r.razon_social), 'Con razón social'], [n(r => r.rfc), 'Con RFC'], [n(r => r.estatus_mes === 'Nuevo'), 'Nuevas en la última corrida']];
+  $('#kpis').innerHTML = k.map(([v, t]) => `<div class="kpi"><b>${v}</b><span>${t}</span></div>`).join('');
+  $('#sub').textContent = CORRIDA.fecha ? `Última extracción: ${fecha(CORRIDA.fecha)} · Fuente: ${MOTORES[CORRIDA.motor] || CORRIDA.motor} · ${CORRIDA.consultas} consultas, ${CORRIDA.candidatos} sitios revisados` : 'Aún no se ha ejecutado ninguna extracción.';
+}
+async function cargar() {
+  const d = await (await fetch('/api/datos', {cache: 'no-store'})).json();
+  EMP = d.empresas || []; CORRIDA = d.corrida || {};
+  pintarKpis(); armarFiltros(); aplicar();
+  return d.estado || {};
+}
+let reloj = null;
+function pintarEstado(e) {
+  const av = $('#avance'), vivo = e.estado === 'corriendo' || e.estado === 'en cola';
+  $('#btnRun').disabled = vivo; $('#btnRun').textContent = vivo ? '⏳ Extrayendo…' : '▶ Ejecutar extracción';
+  av.className = e.estado === 'error' ? 'error' : e.estado === 'terminado' ? 'ok' : '';
+  if (vivo) {
+    const pct = e.total ? Math.round(100 * e.hecho / e.total) : 0;
+    av.style.display = 'block'; $('#avBar').parentElement.style.display = '';
+    $('#avTxt').textContent = `${e.etapa || 'Iniciando'}${e.total ? ` · ${e.hecho} de ${e.total} (${pct}%)` : '…'}`;
+    $('#avBar').style.width = (e.total ? pct : 4) + '%';
+  }
+  return vivo;
+}
+async function vigilar() {
+  clearInterval(reloj);
+  reloj = setInterval(async () => {
+    let e; try { e = await (await fetch('/api/estado', {cache: 'no-store'})).json(); } catch (_) { return; }
+    if (pintarEstado(e)) return;
+    clearInterval(reloj);
+    const av = $('#avance'); av.style.display = 'block'; $('#avBar').parentElement.style.display = 'none';
+    if (e.estado === 'terminado') {
+      await cargar(); const p = e.por_estatus || {};
+      $('#avTxt').textContent = `Extracción terminada: ${e.empresas} empresas · ${p.Nuevo || 0} nuevas, ${p.Actualizado || 0} actualizadas, ${p['Sin cambios'] || 0} sin cambios, ${p['Sin respuesta'] || 0} sin respuesta.`;
+      setTimeout(() => { av.style.display = 'none'; }, 15000);
+    } else $('#avTxt').textContent = 'La extracción falló: ' + (e.error || 'error desconocido');
+  }, 3000);
+}
+$('#btnRun').onclick = async () => {
+  $('#btnRun').disabled = true;
+  const r = await fetch('/api/ejecutar', {method: 'POST'}); const d = await r.json().catch(() => ({}));
+  if (!r.ok && r.status !== 409) { $('#avance').className = 'error'; $('#avance').style.display = 'block'; $('#avBar').parentElement.style.display = 'none'; $('#avTxt').textContent = d.motivo || 'No se pudo iniciar la extracción.'; $('#btnRun').disabled = false; return; }
+  pintarEstado(d.estado || {estado: 'en cola'}); vigilar();
+};
+cargar().then(e => { if (pintarEstado(e)) vigilar(); }).catch(() => { $('#sub').textContent = 'No se pudieron cargar los datos.'; });
+</script>
+</body>
+</html>
