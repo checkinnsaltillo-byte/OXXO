@@ -804,6 +804,7 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
             "estados_busqueda": sorted(set(previo.get("estados_busqueda", [])) | set(g["estados"]), key=ESTADOS.index),
             "frases": g["frases"], "n_consultas": len(g["consultas"]), "fuente": ", ".join(sorted(g["motores"])),
             "maps": x.get("maps", ""), "calificacion": x.get("calificacion", ""),
+            "lat": x.get("lat") or previo.get("lat") or "", "lng": x.get("lng") or previo.get("lng") or "",
         })
         if x.get("telefono"):
             nuevo["telefonos"] = list(dict.fromkeys([limpiar_tel(x["telefono"]) or x["telefono"]] + nuevo.get("telefonos", [])))[:5]

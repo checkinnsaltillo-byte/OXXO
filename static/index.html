@@ -74,6 +74,29 @@ select{font:inherit;border:1px solid var(--linea);border-radius:8px;padding:7px 
 #modal h2{margin:0 0 4px;font-size:19px}
 #modal dl{display:grid;grid-template-columns:150px 1fr;gap:8px 12px;margin:16px 0}
 #modal dt{color:var(--gris);font-size:13px}#modal dd{margin:0;word-break:break-word}
+.pestanas .tab.mapa{border:1px solid var(--linea);background:var(--papel);color:var(--tinta);margin-left:6px}
+.pestanas .tab.mapa.on{background:var(--verde2);border-color:var(--verde2);color:#fff}
+#mapa{position:fixed;right:0;top:0;bottom:0;width:44vw;background:var(--papel);border-left:1px solid var(--linea);box-shadow:-8px 0 30px rgba(0,0,0,.12);z-index:28;display:none;flex-direction:column}
+body.mapa-on #mapa{display:flex}
+body.mapa-on main{margin-right:44vw;max-width:none}
+#mapa .cab{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--linea);font-weight:650}
+#mapa .cab span{font-weight:400;color:var(--gris);font-size:13px}
+#mapa .cab button{margin-left:auto}
+#mapa-lienzo{flex:1;min-height:0;background:#e8ecea}
+.rme-pin{position:absolute;transform:translate(-50%,-100%);background:rgba(255,255,255,.94);color:#0f172a;padding:5px 11px;border-radius:99px;font-size:12px;font-weight:800;box-shadow:0 4px 12px rgba(15,23,42,.25),0 1px 3px rgba(15,23,42,.15);cursor:pointer;white-space:nowrap;backdrop-filter:blur(4px);transition:all .15s;letter-spacing:-.01em;max-width:170px;overflow:hidden;text-overflow:ellipsis}
+.rme-pin:hover{background:#0f766e;color:#fff;transform:translate(-50%,-100%) scale(1.08);box-shadow:0 6px 18px rgba(15,118,110,.4);z-index:5}
+.rme-cluster{position:absolute;transform:translate(-50%,-50%);display:inline-flex;align-items:center;gap:7px;background:linear-gradient(135deg,#f97316,#f59e0b);color:#fff;font-size:11px;font-weight:800;padding:6px 12px 6px 6px;border-radius:999px;box-shadow:0 6px 18px rgba(249,115,22,.35),0 2px 6px rgba(15,23,42,.15);cursor:pointer;white-space:nowrap;transition:transform .15s}
+.rme-cluster:hover{transform:translate(-50%,-50%) scale(1.08);box-shadow:0 10px 26px rgba(249,115,22,.5)}
+.rme-cluster b{background:rgba(255,255,255,.28);border-radius:999px;min-width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;padding:0 6px}
+.rme-cluster span{font-size:10px;opacity:.95;letter-spacing:.02em;text-transform:uppercase}
+.leaflet-popup-content-wrapper{border-radius:14px;box-shadow:0 20px 60px -8px rgba(0,0,0,.4)}
+.leaflet-popup-content{margin:13px 15px;font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;min-width:220px}
+.mcard b{font-size:14.5px;display:block;margin-bottom:2px}
+.mcard .l{margin-top:5px}
+.mcard .acc{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+.mcard .acc button{border:0;background:var(--verde);color:#fff;border-radius:7px;padding:6px 11px;font:inherit;font-weight:600;cursor:pointer}
+.mcard .item{padding:5px 0;border-bottom:1px solid var(--linea);cursor:pointer}.mcard .item:hover{color:var(--verde2)}
+@media(max-width:900px){#mapa{width:100vw;z-index:45;top:0!important}body.mapa-on main{margin-right:0}}
 @media(max-width:640px){header{padding:12px}main{padding:12px 10px 50px}#modal dl{grid-template-columns:1fr}#modal dt{margin-top:6px}.caja{max-height:none}}
 </style>
 </head>
@@ -96,6 +119,7 @@ select{font:inherit;border:1px solid var(--linea);border-radius:8px;padding:7px 
   <div class="pestanas">
     <button class="tab on" data-v="tabla">Tabla</button>
     <button class="tab" data-v="pivote">Tabla dinámica</button>
+    <button class="tab mapa" id="btnMapa" type="button">🗺️ Ver Mapa</button>
     <span class="cuenta" id="cuenta"></span>
   </div>
   <section id="v-tabla">
@@ -111,6 +135,10 @@ select{font:inherit;border:1px solid var(--linea);border-radius:8px;padding:7px 
     <div class="caja"><table id="pivote"></table></div>
   </section>
 </main>
+<aside id="mapa">
+  <div class="cab">Mapa <span id="mapaCuenta"></span><button class="btn" type="button" id="mapaCerrar">Cerrar ✕</button></div>
+  <div id="mapa-lienzo"></div>
+</aside>
 <div id="modal"><div class="hoja" id="hoja"></div></div>
 <script>
 const $ = s => document.querySelector(s);
@@ -203,7 +231,7 @@ function aplicar() {
   VISTA = EMP.filter(pasa);
   const col = COLS.find(c => c.k === ORD.k) || COLS[0];
   VISTA.sort((a, b) => { const x = col.o(a), y = col.o(b); return (x < y ? -1 : x > y ? 1 : 0) * ORD.dir; });
-  PAGINA = 0; pintarTabla(); pintarPivote();
+  PAGINA = 0; pintarTabla(); pintarPivote(); if (MAPA.on && MAPA.map) mapaPintar(true);
   $('#cuenta').textContent = `${VISTA.length} de ${EMP.length} empresas`;
 }
 function pintarTabla() {
@@ -260,10 +288,85 @@ function pintarPivote() {
 $('#pf').innerHTML = Object.entries(DIMS).map(([k, d]) => `<option value="${k}">${d.t}</option>`).join('');
 $('#pc').innerHTML = '<option value="">(ninguna)</option>' + Object.entries(DIMS).map(([k, d]) => `<option value="${k}">${d.t}</option>`).join('');
 $('#pc').value = 'servicios'; $('#pf').onchange = $('#pc').onchange = pintarPivote;
-document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
-  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
+document.querySelectorAll('.tab[data-v]').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab[data-v]').forEach(x => x.classList.toggle('on', x === t));
   $('#v-tabla').style.display = t.dataset.v === 'tabla' ? '' : 'none'; $('#v-pivote').style.display = t.dataset.v === 'pivote' ? '' : 'none';
 });
+
+// ── Mapa (panel lateral). Misma mecánica que el mapa de la landing check-inn.mx:
+//    Leaflet bajo demanda, pines tipo píldora, racimos por cercanía en pantalla y tarjeta resumen sobre el pin. ──
+const MAPA = {on: false, map: null, capas: [], pts: []};
+function mapaLeaflet(cb) {
+  if (window.L) return cb();
+  const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(css);
+  const js = document.createElement('script'); js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; js.onload = cb; document.head.appendChild(js);
+}
+function mapaColocar() { const h = document.querySelector('header').getBoundingClientRect(); $('#mapa').style.top = Math.max(0, h.bottom) + 'px'; }
+function mapaAlternar(abrir) {
+  MAPA.on = abrir === undefined ? !MAPA.on : abrir;
+  document.body.classList.toggle('mapa-on', MAPA.on); $('#btnMapa').classList.toggle('on', MAPA.on);
+  $('#btnMapa').textContent = MAPA.on ? '🗺️ Ocultar Mapa' : '🗺️ Ver Mapa';
+  if (!MAPA.on) return;
+  mapaColocar();
+  mapaLeaflet(() => {
+    if (!MAPA.map) {
+      MAPA.map = L.map('mapa-lienzo').setView([23.6, -102.5], 5);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap'}).addTo(MAPA.map);
+      MAPA.map.on('zoomend moveend', mapaMarcadores);
+    }
+    setTimeout(() => { MAPA.map.invalidateSize(); mapaPintar(true); }, 80);
+  });
+}
+function mapaPintar(encuadrar) {
+  MAPA.pts = VISTA.filter(r => r.lat && r.lng);
+  $('#mapaCuenta').textContent = `${MAPA.pts.length} de ${VISTA.length} empresas con ubicación`;
+  MAPA.map.closePopup();
+  if (encuadrar && MAPA.pts.length) MAPA.map.fitBounds(MAPA.pts.map(r => [r.lat, r.lng]), {padding: [40, 40], maxZoom: 14});
+  mapaMarcadores();
+}
+function mapaMarcadores() {
+  const map = MAPA.map; if (!map) return;
+  MAPA.capas.forEach(m => map.removeLayer(m)); MAPA.capas = [];
+  const caja = map.getBounds().pad(0.2), CELDA = 58, grupos = new Map();
+  MAPA.pts.forEach(r => {  // racimos: puntos que caen en la misma celda de pantalla
+    if (!caja.contains([r.lat, r.lng])) return;
+    const px = map.latLngToLayerPoint([r.lat, r.lng]), k = Math.floor(px.x / CELDA) + ':' + Math.floor(px.y / CELDA);
+    (grupos.get(k) || grupos.set(k, []).get(k)).push(r);
+  });
+  grupos.forEach(g => {
+    if (g.length === 1) {
+      const r = g[0], icon = L.divIcon({className: '', html: `<div class="rme-pin">${esc(r.nombre)}</div>`, iconSize: [0, 0]});
+      const m = L.marker([r.lat, r.lng], {icon}).addTo(map);
+      m.on('click', () => L.popup({offset: [0, -26], maxWidth: 300}).setLatLng([r.lat, r.lng]).setContent(mapaTarjeta(r)).openOn(map));
+      MAPA.capas.push(m);
+    } else {
+      const lat = g.reduce((s, r) => s + r.lat, 0) / g.length, lng = g.reduce((s, r) => s + r.lng, 0) / g.length;
+      const icon = L.divIcon({className: '', html: `<div class="rme-cluster"><b>${g.length}</b><span>empresas</span></div>`, iconSize: [0, 0]});
+      const m = L.marker([lat, lng], {icon, zIndexOffset: 500}).addTo(map);
+      m.on('click', () => {
+        const b = L.latLngBounds(g.map(r => [r.lat, r.lng]));
+        if (map.getZoom() >= 18 || b.getNorthEast().equals(b.getSouthWest()))
+          L.popup({maxWidth: 300}).setLatLng([lat, lng]).setContent(`<div class="mcard"><b>${g.length} empresas en este punto</b>` + g.slice(0, 12).map(r => `<div class="item" data-ficha="${esc(r.clave)}">${esc(r.nombre)}</div>`).join('') + '</div>').openOn(map);
+        else map.fitBounds(b, {padding: [70, 70], maxZoom: Math.min(18, map.getZoom() + 4)});
+      });
+      MAPA.capas.push(m);
+    }
+  });
+}
+function mapaTarjeta(r) {
+  const tel = lista(r.telefonos)[0], serv = lista(r.servicios).slice(0, 4);
+  return `<div class="mcard"><b>${esc(r.nombre)}</b><div class="tenue">${esc(r.direccion || r.estado_sede || '')}</div>` +
+    (tel ? `<div class="l">☎ ${esc(tel)}</div>` : '') + (lista(r.correos)[0] ? `<div class="l">✉ ${esc(lista(r.correos)[0])}</div>` : '') +
+    (serv.length ? `<div class="l">${serv.map(s => `<span class="tag">${esc(s)}</span>`).join('')}</div>` : '') +
+    `<div class="acc"><button type="button" data-ficha="${esc(r.clave)}">Ver ficha</button>` +
+    (urlOk(r.sitio) ? `<a href="${esc(r.sitio)}" target="_blank" rel="noopener">Sitio web</a>` : '') +
+    (urlOk(r.maps) ? `<a href="${esc(r.maps)}" target="_blank" rel="noopener">Google Maps</a>` : '') + '</div></div>';
+}
+$('#btnMapa').onclick = () => mapaAlternar();
+$('#mapaCerrar').onclick = () => mapaAlternar(false);
+$('#mapa-lienzo').addEventListener('click', e => { const b = e.target.closest('[data-ficha]'); if (b) ficha(EMP.find(r => r.clave === b.dataset.ficha)); });
+window.addEventListener('resize', () => { if (MAPA.on) { mapaColocar(); MAPA.map && MAPA.map.invalidateSize(); } });
+window.addEventListener('scroll', () => { if (MAPA.on) mapaColocar(); }, {passive: true});
 
 // ── Datos y extracción ──
 const fecha = iso => iso ? new Date(iso).toLocaleString('es-MX', {dateStyle: 'medium', timeStyle: 'short'}) : '';
