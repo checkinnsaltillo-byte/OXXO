@@ -68,12 +68,20 @@ select{font:inherit;border:1px solid var(--linea);border-radius:8px;padding:7px 
 #pivote tr.tot td{font-weight:700;background:#eef2f0;position:sticky;bottom:0}
 #pivote th.v{writing-mode:vertical-rl;transform:rotate(180deg);text-align:left;vertical-align:bottom;white-space:nowrap;text-transform:none;font-size:12.5px;padding:10px 6px}
 .vacio{padding:50px 20px;text-align:center;color:var(--gris)}
-#modal{position:fixed;inset:0;background:rgba(20,30,28,.45);display:none;z-index:50;justify-content:flex-end}
-#modal.on{display:flex}
-#modal .hoja{background:var(--papel);width:min(560px,100%);height:100%;overflow:auto;padding:20px 22px}
-#modal h2{margin:0 0 4px;font-size:19px}
-#modal dl{display:grid;grid-template-columns:150px 1fr;gap:8px 12px;margin:16px 0}
-#modal dt{color:var(--gris);font-size:13px}#modal dd{margin:0;word-break:break-word}
+#tabla tbody tr.sel>td{background:#dff0ea;box-shadow:inset 0 2px 0 var(--verde2)}
+#tabla tbody tr.sel>td:first-child{box-shadow:inset 4px 0 0 var(--verde2),inset 0 2px 0 var(--verde2)}
+#tabla tbody tr.det{cursor:default}
+#tabla tbody tr.det>td{max-width:none;padding:0;background:#f3f9f6;border-bottom:2px solid var(--verde2)}
+#tabla tbody tr.det:hover{background:none}
+.det .in{position:sticky;left:0;width:var(--cajaW,100%);padding:14px 18px 16px 22px;box-shadow:inset 4px 0 0 var(--verde2)}
+.det .tit{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.det .tit b{font-size:16px}.det .tit .btn{padding:5px 10px;font-size:13px}.det .tit .der{margin-left:auto}
+.det .campos{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px 24px}
+.det .campos div{min-width:0;word-break:break-word}
+.det .campos span{display:block;color:var(--gris);font-size:12px}
+.det .campos .ancho{grid-column:1/-1}
+.rme-pin.sel{background:#0f766e;color:#fff;box-shadow:0 0 0 3px rgba(232,163,61,.95),0 6px 18px rgba(15,118,110,.45);z-index:6}
+.rme-cluster.sel{box-shadow:0 0 0 3px rgba(15,118,110,.95),0 6px 18px rgba(249,115,22,.35)}
 .pestanas .tab.mapa{border:1px solid var(--linea);background:var(--papel);color:var(--tinta);margin-left:6px}
 .pestanas .tab.mapa.on{background:var(--verde2);border-color:var(--verde2);color:#fff}
 #mapa{position:fixed;right:0;top:0;bottom:0;width:44vw;background:var(--papel);border-left:1px solid var(--linea);box-shadow:-8px 0 30px rgba(0,0,0,.12);z-index:28;display:none;flex-direction:column}
@@ -97,7 +105,7 @@ body.mapa-on main{margin-right:44vw;max-width:none}
 .mcard .acc button{border:0;background:var(--verde);color:#fff;border-radius:7px;padding:6px 11px;font:inherit;font-weight:600;cursor:pointer}
 .mcard .item{padding:5px 0;border-bottom:1px solid var(--linea);cursor:pointer}.mcard .item:hover{color:var(--verde2)}
 @media(max-width:900px){#mapa{width:100vw;z-index:45;top:0!important}body.mapa-on main{margin-right:0}}
-@media(max-width:640px){header{padding:12px}main{padding:12px 10px 50px}#modal dl{grid-template-columns:1fr}#modal dt{margin-top:6px}.caja{max-height:none}}
+@media(max-width:640px){header{padding:12px}main{padding:12px 10px 50px}.caja{max-height:none}}
 </style>
 </head>
 <body>
@@ -139,7 +147,6 @@ body.mapa-on main{margin-right:44vw;max-width:none}
   <div class="cab">Mapa <span id="mapaCuenta"></span><button class="btn" type="button" id="mapaCerrar">Cerrar ✕</button></div>
   <div id="mapa-lienzo"></div>
 </aside>
-<div id="modal"><div class="hoja" id="hoja"></div></div>
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -238,34 +245,58 @@ function pintarTabla() {
   $('#tabla thead').innerHTML = '<tr>' + COLS.map(c => `<th class="ord" data-k="${c.k}">${c.t}${ORD.k === c.k ? (ORD.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('') + '</tr>';
   const pags = Math.max(1, Math.ceil(VISTA.length / POR_PAG)); PAGINA = Math.min(PAGINA, pags - 1);
   const trozo = VISTA.slice(PAGINA * POR_PAG, (PAGINA + 1) * POR_PAG);
-  $('#tabla tbody').innerHTML = trozo.map(r => `<tr data-c="${esc(r.clave)}">` + COLS.map(c => `<td>${c.h(r) || ''}</td>`).join('') + '</tr>').join('');
+  if (SEL && !VISTA.some(r => r.clave === SEL)) SEL = null;
+  $('.caja').style.setProperty('--cajaW', $('.caja').clientWidth + 'px');
+  $('#tabla tbody').innerHTML = trozo.map(r => `<tr data-c="${esc(r.clave)}"${r.clave === SEL ? ' class="sel"' : ''}>` + COLS.map(c => `<td>${c.h(r) || ''}</td>`).join('') + '</tr>' +
+    (r.clave === SEL ? `<tr class="det"><td colspan="${COLS.length}">${detalle(r)}</td></tr>` : '')).join('');
   $('#vacio').style.display = VISTA.length ? 'none' : 'block';
   $('#pag').textContent = `Página ${PAGINA + 1} de ${pags}`;
   $('#ant').disabled = PAGINA === 0; $('#sig').disabled = PAGINA >= pags - 1;
 }
 $('#tabla thead').onclick = e => { const th = e.target.closest('th'); if (!th) return; const k = th.dataset.k; if (ORD.k === k) ORD.dir *= -1; else { ORD.k = k; ORD.dir = 1; } aplicar(); };
-$('#tabla tbody').onclick = e => { const tr = e.target.closest('tr'); if (tr) ficha(EMP.find(r => r.clave === tr.dataset.c)); };
+$('#tabla tbody').onclick = e => {
+  if (e.target.closest('[data-cerrar]')) return seleccionar(null);
+  if (e.target.closest('[data-vermapa]')) { const r = EMP.find(x => x.clave === SEL); if (!MAPA.on) mapaAlternar(true, r); else mapaEnfocar(r); return; }
+  if (e.target.closest('tr.det')) return;  // dentro del detalle no se selecciona nada
+  const tr = e.target.closest('tr'); if (!tr) return;
+  seleccionar(tr.dataset.c === SEL ? null : tr.dataset.c, 'tabla');
+};
 $('#ant').onclick = () => { PAGINA--; pintarTabla(); }; $('#sig').onclick = () => { PAGINA++; pintarTabla(); };
 
-function ficha(r) {
-  if (!r) return;
-  const rd = r.redes || {}, en = u => urlOk(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u)}</a>` : esc(u);
+// Detalle del registro: se despliega debajo del renglón seleccionado.
+function detalle(r) {
+  const rd = r.redes || {}, en = u => urlOk(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\/(www\.)?/, '').slice(0, 60))}</a>` : esc(u);
   const filas = [['Razón social', esc(r.razon_social)], ['RFC', esc(r.rfc)], ['Estado sede', esc(r.estado_sede)],
-    ['Aparece en búsquedas de', esc(lista(r.estados_busqueda).join(', '))], ['Cobertura mencionada', esc(lista(r.estados_mencionados).join(', '))],
     ['Dirección', esc(r.direccion)], ['C.P.', esc(r.cp)], ['Teléfonos', esc(lista(r.telefonos).join(' · '))], ['WhatsApp', esc(rd.WhatsApp)],
     ['Correos', lista(r.correos).map(c => `<a href="mailto:${esc(c)}">${esc(c)}</a>`).join('<br>')], ['Sitio web', en(r.sitio)],
-    ['Servicios', lista(r.servicios).map(s => `<span class="tag">${esc(s)}</span>`).join('')],
-    ['Tipos de residuos', lista(r.residuos).map(s => `<span class="tag r">${esc(s)}</span>`).join('')],
+    ['Aparece en búsquedas de', esc(lista(r.estados_busqueda).join(', '))], ['Cobertura mencionada', esc(lista(r.estados_mencionados).join(', '))],
     ['Autorizaciones', esc(lista(r.autorizaciones).join(', '))], ['Núm. de autorización', esc(r.num_autorizacion)],
-    ['Descripción', esc(r.descripcion)], ['Facebook', en(rd.Facebook)], ['LinkedIn', en(rd.LinkedIn)], ['Instagram', en(rd.Instagram)],
-    ['Google Maps', en(r.maps)], ['Relevancia', esc(r.relevancia)], ['Frases de búsqueda', esc(lista(r.frases).join(' · '))],
-    ['Calificación en Google', esc(r.calificacion)], ['Estatus del mes', esc(r.estatus_mes)], ['Primera detección', esc(r.primera_deteccion)], ['Última verificación', esc(r.ultima_verificacion)], ['Fuente', esc(DIMS.fuente.g(r).join(' + '))]];
-  $('#hoja').innerHTML = `<button class="btn" style="float:right" onclick="document.getElementById('modal').classList.remove('on')">Cerrar ✕</button><h2>${esc(r.nombre)}</h2><div class="tenue">${esc(r.clave)}</div><dl>` +
-    filas.filter(f => f[1]).map(f => `<dt>${f[0]}</dt><dd>${f[1]}</dd>`).join('') + '</dl>';
-  $('#modal').classList.add('on');
+    ['Facebook', en(rd.Facebook)], ['LinkedIn', en(rd.LinkedIn)], ['Instagram', en(rd.Instagram)], ['Google Maps', en(r.maps)],
+    ['Calificación en Google', esc(r.calificacion)], ['Relevancia', esc(r.relevancia)], ['Estatus del mes', esc(r.estatus_mes)],
+    ['Primera detección', esc(r.primera_deteccion)], ['Última verificación', esc(r.ultima_verificacion)], ['Fuente', esc(DIMS.fuente.g(r).join(' + '))],
+    ['Servicios', lista(r.servicios).map(s => `<span class="tag">${esc(s)}</span>`).join(''), 1],
+    ['Tipos de residuos', lista(r.residuos).map(s => `<span class="tag r">${esc(s)}</span>`).join(''), 1],
+    ['Descripción', esc(r.descripcion), 1], ['Frases de búsqueda', esc(lista(r.frases).join(' · ')), 1]];
+  return `<div class="in"><div class="tit"><b>${esc(r.nombre)}</b><span class="tenue">${esc(r.clave.startsWith('place:') ? '' : r.clave)}</span>` +
+    `<span class="der"></span>${r.lat && r.lng ? '<button class="btn" type="button" data-vermapa>🗺️ Ver en el mapa</button>' : '<span class="tenue">Sin ubicación en el mapa</span>'}` +
+    `<button class="btn" type="button" data-cerrar>Cerrar ✕</button></div><div class="campos">` +
+    filas.filter(f => f[1]).map(f => `<div${f[2] ? ' class="ancho"' : ''}><span>${f[0]}</span>${f[1]}</div>`).join('') + '</div></div>';
 }
-$('#modal').onclick = e => { if (e.target.id === 'modal') e.target.classList.remove('on'); };
-document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#modal').classList.remove('on'); });
+// Selección compartida entre la tabla y el mapa.
+let SEL = null;
+function seleccionar(clave, origen) {
+  SEL = clave || null;
+  const r = SEL && EMP.find(x => x.clave === SEL);
+  if (r && origen === 'mapa') {  // viene del mapa: ir al renglón aunque esté en otra página
+    const i = VISTA.findIndex(x => x.clave === SEL);
+    if (i >= 0) PAGINA = Math.floor(i / POR_PAG);
+    const tab = document.querySelector('.tab[data-v=tabla]'); if (!tab.classList.contains('on')) tab.click();
+  }
+  pintarTabla();
+  if (r && origen === 'mapa') { const tr = document.querySelector('#tabla tbody tr.sel'); if (tr) tr.scrollIntoView({block: 'center', behavior: 'smooth'}); }
+  if (MAPA.on && MAPA.map) { if (r && origen === 'tabla') mapaEnfocar(r); else mapaMarcadores(); }
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && SEL) seleccionar(null); });
 
 // ── Tabla dinámica ──
 function pintarPivote() {
@@ -302,7 +333,14 @@ function mapaLeaflet(cb) {
   const js = document.createElement('script'); js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'; js.onload = cb; document.head.appendChild(js);
 }
 function mapaColocar() { const h = document.querySelector('header').getBoundingClientRect(); $('#mapa').style.top = Math.max(0, h.bottom) + 'px'; }
-function mapaAlternar(abrir) {
+function mapaEnfocar(r) {
+  const map = MAPA.map; if (!map) return;
+  if (!r || !r.lat || !r.lng) { map.closePopup(); $('#mapaCuenta').textContent = r ? `«${r.nombre}» no tiene ubicación en el mapa` : ''; return mapaMarcadores(); }
+  map.setView([r.lat, r.lng], Math.max(map.getZoom(), 15), {animate: true});
+  mapaMarcadores();
+  L.popup({offset: [0, -26], maxWidth: 300, autoPan: false}).setLatLng([r.lat, r.lng]).setContent(mapaTarjeta(r)).openOn(map);
+}
+function mapaAlternar(abrir, enfocar) {
   MAPA.on = abrir === undefined ? !MAPA.on : abrir;
   document.body.classList.toggle('mapa-on', MAPA.on); $('#btnMapa').classList.toggle('on', MAPA.on);
   $('#btnMapa').textContent = MAPA.on ? '🗺️ Ocultar Mapa' : '🗺️ Ver Mapa';
@@ -314,13 +352,18 @@ function mapaAlternar(abrir) {
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, attribution: '© OpenStreetMap'}).addTo(MAPA.map);
       MAPA.map.on('zoomend moveend', mapaMarcadores);
     }
-    setTimeout(() => { MAPA.map.invalidateSize(); mapaPintar(true); }, 80);
+    setTimeout(() => {
+      MAPA.map.invalidateSize(); mapaPintar(true);
+      const r = enfocar || (SEL && EMP.find(x => x.clave === SEL)); if (r && r.lat) mapaEnfocar(r);
+    }, 80);
   });
 }
 function mapaPintar(encuadrar) {
   MAPA.pts = VISTA.filter(r => r.lat && r.lng);
   $('#mapaCuenta').textContent = `${MAPA.pts.length} de ${VISTA.length} empresas con ubicación`;
   MAPA.map.closePopup();
+  const elegido = SEL && MAPA.pts.find(r => r.clave === SEL);
+  if (elegido) return mapaEnfocar(elegido);
   if (encuadrar && MAPA.pts.length) MAPA.map.fitBounds(MAPA.pts.map(r => [r.lat, r.lng]), {padding: [40, 40], maxZoom: 14});
   mapaMarcadores();
 }
@@ -335,13 +378,13 @@ function mapaMarcadores() {
   });
   grupos.forEach(g => {
     if (g.length === 1) {
-      const r = g[0], icon = L.divIcon({className: '', html: `<div class="rme-pin">${esc(r.nombre)}</div>`, iconSize: [0, 0]});
-      const m = L.marker([r.lat, r.lng], {icon}).addTo(map);
-      m.on('click', () => L.popup({offset: [0, -26], maxWidth: 300}).setLatLng([r.lat, r.lng]).setContent(mapaTarjeta(r)).openOn(map));
+      const r = g[0], icon = L.divIcon({className: '', html: `<div class="rme-pin${r.clave === SEL ? ' sel' : ''}">${esc(r.nombre)}</div>`, iconSize: [0, 0]});
+      const m = L.marker([r.lat, r.lng], {icon, zIndexOffset: r.clave === SEL ? 1000 : 0}).addTo(map);
+      m.on('click', () => { seleccionar(r.clave, 'mapa'); mapaEnfocar(r); });
       MAPA.capas.push(m);
     } else {
       const lat = g.reduce((s, r) => s + r.lat, 0) / g.length, lng = g.reduce((s, r) => s + r.lng, 0) / g.length;
-      const icon = L.divIcon({className: '', html: `<div class="rme-cluster"><b>${g.length}</b><span>empresas</span></div>`, iconSize: [0, 0]});
+      const icon = L.divIcon({className: '', html: `<div class="rme-cluster${g.some(r => r.clave === SEL) ? ' sel' : ''}"><b>${g.length}</b><span>empresas</span></div>`, iconSize: [0, 0]});
       const m = L.marker([lat, lng], {icon, zIndexOffset: 500}).addTo(map);
       m.on('click', () => {
         const b = L.latLngBounds(g.map(r => [r.lat, r.lng]));
@@ -358,13 +401,13 @@ function mapaTarjeta(r) {
   return `<div class="mcard"><b>${esc(r.nombre)}</b><div class="tenue">${esc(r.direccion || r.estado_sede || '')}</div>` +
     (tel ? `<div class="l">☎ ${esc(tel)}</div>` : '') + (lista(r.correos)[0] ? `<div class="l">✉ ${esc(lista(r.correos)[0])}</div>` : '') +
     (serv.length ? `<div class="l">${serv.map(s => `<span class="tag">${esc(s)}</span>`).join('')}</div>` : '') +
-    `<div class="acc"><button type="button" data-ficha="${esc(r.clave)}">Ver ficha</button>` +
+    `<div class="acc"><button type="button" data-ficha="${esc(r.clave)}">Ver en la tabla</button>` +
     (urlOk(r.sitio) ? `<a href="${esc(r.sitio)}" target="_blank" rel="noopener">Sitio web</a>` : '') +
     (urlOk(r.maps) ? `<a href="${esc(r.maps)}" target="_blank" rel="noopener">Google Maps</a>` : '') + '</div></div>';
 }
 $('#btnMapa').onclick = () => mapaAlternar();
 $('#mapaCerrar').onclick = () => mapaAlternar(false);
-$('#mapa-lienzo').addEventListener('click', e => { const b = e.target.closest('[data-ficha]'); if (b) ficha(EMP.find(r => r.clave === b.dataset.ficha)); });
+$('#mapa-lienzo').addEventListener('click', e => { const b = e.target.closest('[data-ficha]'); if (!b) return; const r = EMP.find(x => x.clave === b.dataset.ficha); seleccionar(b.dataset.ficha, 'mapa'); mapaEnfocar(r); });
 window.addEventListener('resize', () => { if (MAPA.on) { mapaColocar(); MAPA.map && MAPA.map.invalidateSize(); } });
 window.addEventListener('scroll', () => { if (MAPA.on) mapaColocar(); }, {passive: true});
 
