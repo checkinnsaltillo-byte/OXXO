@@ -661,7 +661,12 @@ def exportar_xlsx(base, descartados, bitacora, ruta, hoy):
 
 
 BUSQUEDA_JSON = os.path.join(DATOS, "busqueda_cache.json")
-BUSQUEDA_DIAS = float(os.environ.get("BUSQUEDA_DIAS", "7"))  # las búsquedas de paga se reutilizan este tiempo
+# Días que se reutiliza la búsqueda de paga de cada fuente antes de volver a consultar a Google.
+# Google Maps: semestral. Gemini (Google web): mensual. Un par de días de holgura para que la corrida
+# programada del mes o del semestre siempre encuentre la búsqueda ya vencida.
+BUSQUEDA_DIAS = {"places": float(os.environ.get("BUSQUEDA_DIAS_PLACES", "178")),
+                 "gemini": float(os.environ.get("BUSQUEDA_DIAS_GEMINI", "28")),
+                 "cse": float(os.environ.get("BUSQUEDA_DIAS_CSE", "28"))}
 
 
 def motores_disponibles(serp=SERP_JSON):
@@ -679,7 +684,7 @@ def motores_disponibles(serp=SERP_JSON):
 
 
 def buscar(motores, estados, serp):
-    """Corre cada motor. Las búsquedas por API (de paga) se guardan por motor y se reutilizan BUSQUEDA_DIAS días."""
+    """Corre cada motor. Las búsquedas por API (de paga) se guardan por motor y se reutilizan BUSQUEDA_DIAS[motor] días."""
     cands, bitacora, reutilizadas = [], [], []
     cache = {}
     if os.path.exists(BUSQUEDA_JSON):
@@ -696,7 +701,7 @@ def buscar(motores, estados, serp):
             g = cache.get(m)
             if g:
                 edad = (dt.datetime.utcnow() - dt.datetime.strptime(g["fecha"], "%Y-%m-%dT%H:%M:%SZ")).total_seconds() / 86400
-                if g.get("estados") != estados or edad > BUSQUEDA_DIAS:
+                if g.get("estados") != estados or edad > BUSQUEDA_DIAS[m]:
                     g = None
             if g:
                 c, b = g["cands"], [tuple(x) for x in g["bitacora"]]
