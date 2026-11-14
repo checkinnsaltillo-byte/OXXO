@@ -119,7 +119,7 @@ const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLow
 const lista = v => Array.isArray(v) ? v : (v ? [v] : []);
 const urlOk = u => /^https?:\/\//i.test(u || '') ? u : '';
 
-const MOTORES = {places: 'Google Maps', cse: 'Google web (API)', importar: 'Google web (captura)'};
+const MOTORES = {places: 'Google Maps', gemini: 'Google web (Gemini)', cse: 'Google web (API)', importar: 'Google web (captura)'};
 let EMP = [], CORRIDA = {}, VISTA = [];
 const F = {q: '', estados: new Set(), sede: new Set(), servicios: new Set(), residuos: new Set(), fuente: new Set(), estatus: new Set(), flags: new Set()};
 const FILTROS = [['estados', 'Estado (búsqueda)'], ['sede', 'Estado sede'], ['servicios', 'Servicio'], ['residuos', 'Tipo de residuo'], ['fuente', 'Fuente'], ['estatus', 'Estatus']];

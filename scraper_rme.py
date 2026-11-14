@@ -279,6 +279,83 @@ def buscar_cse(estados, frases, clave, cx, paginas=2, pausa=0.3):
     return cands, bitacora
 
 
+GEMINI_MODELO = os.environ.get("GEMINI_MODELO", "gemini-3-flash-preview")
+GEMINI_GRUPO = 3  # frases por pregunta (cada pregunta dispara varias búsquedas de Google)
+
+
+def buscar_gemini(estados, frases, proyecto, hilos=4):
+    """Gemini (Vertex AI) con la herramienta de búsqueda de Google.
+
+    Gemini busca en Google y devuelve las PÁGINAS que encontró (dominio de cada fuente). Aquí solo se
+    usa para descubrir sitios; los datos de cada empresa los extrae después enriquecer() visitando el sitio.
+    """
+    if os.environ.get("GEMINI_TOKEN"):  # prueba local
+        sesion = requests.Session()
+        sesion.headers["Authorization"] = "Bearer " + os.environ["GEMINI_TOKEN"]
+    else:
+        import google.auth
+        from google.auth.transport.requests import AuthorizedSession
+        cred, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        sesion = AuthorizedSession(cred)
+    url = ("https://aiplatform.googleapis.com/v1/projects/%s/locations/global/publishers/google/models/%s:generateContent"
+           % (proyecto, GEMINI_MODELO))
+    tareas = [(est, frases[i:i + GEMINI_GRUPO]) for est in estados for i in range(0, len(frases), GEMINI_GRUPO)]
+
+    def preguntar(est, grupo):
+        texto = ("Busca en Google empresas privadas de %s, México, con estas búsquedas: %s. "
+                 "Haz una lista lo más completa posible (al menos 15 si existen) de las empresas que ofrecen esos "
+                 "servicios en %s, cada una con su nombre y la dirección de su sitio web oficial. "
+                 "No incluyas directorios, noticias, redes sociales ni dependencias de gobierno."
+                 % (est, "; ".join("«%s %s»" % (f, est) for f in grupo), est))
+        cuerpo = {"contents": [{"role": "user", "parts": [{"text": texto}]}], "tools": [{"googleSearch": {}}],
+                  "generationConfig": {"temperature": 0}}
+        for intento in range(3):
+            try:
+                r = sesion.post(url, json=cuerpo, timeout=150)
+            except Exception as e:
+                r, err = None, str(e)[:120]
+            if r is not None and r.status_code == 200:
+                break
+            if r is not None and r.status_code not in (429, 500, 503):
+                return [], 0, "error %s: %s" % (r.status_code, r.text[:120].replace("\n", " "))
+            time.sleep(8 * (intento + 1))
+        else:
+            return [], 0, "error: sin respuesta tras 3 intentos"
+        cand = (r.json().get("candidates") or [{}])[0]
+        meta = cand.get("groundingMetadata", {})
+        doms = {}
+        for ch in meta.get("groundingChunks", []):
+            w = ch.get("web", {})
+            d = dominio_de(w.get("domain") or w.get("title") or "")
+            if re.match(r"^[a-z0-9.\-]+\.[a-z]{2,}$", d):
+                doms.setdefault(d, w.get("title", d))
+        respuesta = "".join(p.get("text", "") for p in cand.get("content", {}).get("parts", []))
+        for u in re.findall(r"https?://[^\s)\]>\"']+", respuesta):
+            d = dominio_de(u)
+            if d and "vertexaisearch" not in d and re.match(r"^[a-z0-9.\-]+\.[a-z]{2,}$", d):
+                doms.setdefault(d, d)
+        return list(doms.items()), len(meta.get("webSearchQueries", [])), "ok"
+
+    cands, bitacora, hechas = [], [], 0
+    with ThreadPoolExecutor(max_workers=hilos) as ex:
+        futuros = {ex.submit(preguntar, est, grupo): (est, grupo) for est, grupo in tareas}
+        for fu in as_completed(futuros):
+            est, grupo = futuros[fu]
+            hechas += 1
+            AVISAR("Buscando en Google web (Gemini)", hechas, len(tareas))
+            try:
+                doms, n_busq, estado_txt = fu.result()
+            except Exception as e:
+                doms, n_busq, estado_txt = [], 0, "error: %s" % str(e)[:120]
+            fr = " + ".join(grupo)
+            for d, tit in doms:
+                cands.append({"estado": est, "consulta": "%s %s" % (fr, est), "titulo": tit, "url": "https://" + d,
+                              "dominio": d, "extra": {}})
+            bitacora.append((est, fr, "%s %s" % (fr, est), "gemini (%d búsquedas)" % n_busq, len(doms), estado_txt))
+    bitacora.sort(key=lambda b: (estados.index(b[0]), b[1]))
+    return cands, bitacora
+
+
 def buscar_importar(ruta, estados):
     """Resultados de Google ya capturados: {"estados":[], "consultas":[], "resultados":[[iEstado,iFrase,dominio,titulo],...]}"""
     with open(ruta, encoding="utf-8") as f:
@@ -592,6 +669,8 @@ def motores_disponibles(serp=SERP_JSON):
     m = []
     if os.environ.get("GOOGLE_MAPS_KEY"):
         m.append("places")
+    if os.environ.get("GEMINI_PROYECTO"):
+        m.append("gemini")
     if os.environ.get("GOOGLE_CSE_KEY") and os.environ.get("GOOGLE_CSE_CX"):
         m.append("cse")
     if os.path.exists(serp):
@@ -600,40 +679,47 @@ def motores_disponibles(serp=SERP_JSON):
 
 
 def buscar(motores, estados, serp):
-    """Corre cada motor. Las búsquedas por API (de paga) se guardan y se reutilizan BUSQUEDA_DIAS días."""
-    cands, bitacora, de_cache = [], [], False
-    api = [m for m in motores if m != "importar"]
-    if api:
-        cache = None
-        if os.path.exists(BUSQUEDA_JSON):
-            with open(BUSQUEDA_JSON, encoding="utf-8") as f:
-                cache = json.load(f)
-            edad = (dt.datetime.utcnow() - dt.datetime.strptime(cache["fecha"], "%Y-%m-%dT%H:%M:%SZ")).total_seconds() / 86400
-            if cache.get("motores") != api or cache.get("estados") != estados or edad > BUSQUEDA_DIAS:
-                cache = None
-        if cache:
-            cands, bitacora, de_cache = cache["cands"], [tuple(b) for b in cache["bitacora"]], cache["fecha"]
+    """Corre cada motor. Las búsquedas por API (de paga) se guardan por motor y se reutilizan BUSQUEDA_DIAS días."""
+    cands, bitacora, reutilizadas = [], [], []
+    cache = {}
+    if os.path.exists(BUSQUEDA_JSON):
+        with open(BUSQUEDA_JSON, encoding="utf-8") as f:
+            cache = json.load(f)
+        if "cands" in cache:  # formato anterior: un solo bloque (places)
+            cache = {"places": {"fecha": cache["fecha"], "estados": cache["estados"], "cands": cache["cands"],
+                                "bitacora": cache["bitacora"]}}
+    cambio = False
+    for m in motores:
+        if m == "importar":
+            c, b = buscar_importar(serp, estados)
         else:
-            for m in api:
+            g = cache.get(m)
+            if g:
+                edad = (dt.datetime.utcnow() - dt.datetime.strptime(g["fecha"], "%Y-%m-%dT%H:%M:%SZ")).total_seconds() / 86400
+                if g.get("estados") != estados or edad > BUSQUEDA_DIAS:
+                    g = None
+            if g:
+                c, b = g["cands"], [tuple(x) for x in g["bitacora"]]
+                reutilizadas.append("%s (%s)" % (m, g["fecha"][:10]))
+            else:
                 if m == "places":
                     c, b = buscar_places(estados, PALABRAS_CLAVE, os.environ["GOOGLE_MAPS_KEY"])
+                elif m == "gemini":
+                    c, b = buscar_gemini(estados, PALABRAS_CLAVE, os.environ["GEMINI_PROYECTO"])
                 else:
                     c, b = buscar_cse(estados, PALABRAS_CLAVE, os.environ["GOOGLE_CSE_KEY"], os.environ["GOOGLE_CSE_CX"])
-                for x in c:
-                    x["motor"] = m
-                cands += c
-                bitacora += b
-            if cands:
-                with open(BUSQUEDA_JSON, "w", encoding="utf-8") as f:
-                    json.dump({"fecha": dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"), "motores": api,
-                               "estados": estados, "cands": cands, "bitacora": bitacora}, f, ensure_ascii=False)
-    if "importar" in motores:
-        c, b = buscar_importar(serp, estados)
+                if c:
+                    cache[m] = {"fecha": dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"), "estados": estados,
+                                "cands": c, "bitacora": b}
+                    cambio = True
         for x in c:
-            x["motor"] = "importar"
+            x["motor"] = m
         cands += c
         bitacora += b
-    return cands, bitacora, de_cache
+    if cambio:
+        with open(BUSQUEDA_JSON, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False)
+    return cands, bitacora, ", ".join(reutilizadas)
 
 
 def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SALIDA_XLSX, serp=SERP_JSON):
