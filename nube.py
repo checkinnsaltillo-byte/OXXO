@@ -20,8 +20,8 @@ from google.cloud import storage  # noqa: E402
 import scraper_rme as s  # noqa: E402
 
 BUCKET = os.environ["BUCKET"]
-ARCHIVOS = ["directorio_rme.json", "serp_google.json"]
-SALIDAS = ["directorio_rme.json", "directorio_rme.xlsx", "ultima_corrida.json"]
+ARCHIVOS = ["directorio_rme.json", "serp_google.json", "busqueda_cache.json"]
+SALIDAS = ["directorio_rme.json", "directorio_rme.xlsx", "ultima_corrida.json", "busqueda_cache.json"]
 
 
 def ahora():
@@ -54,8 +54,10 @@ def main():
             b = cubeta.blob(nombre)
             if b.exists():
                 b.download_to_filename(os.path.join(TRABAJO, nombre))
-        resumen = s.ejecutar("auto")
+        resumen = s.ejecutar("auto", hilos=int(os.environ.get("HILOS", "24")))
         for nombre in SALIDAS:
+            if not os.path.exists(os.path.join(TRABAJO, nombre)):
+                continue
             b = cubeta.blob(nombre)
             b.cache_control = "no-store"
             b.upload_from_filename(os.path.join(TRABAJO, nombre))

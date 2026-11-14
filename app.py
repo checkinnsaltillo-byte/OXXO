@@ -9,11 +9,12 @@
   GET  /descargar.xlsx Excel de la última corrida
 """
 import datetime as dt
+import gzip
 import json
 import os
 
 import google.auth
-from flask import Flask, Response, jsonify, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import storage
 
@@ -21,7 +22,7 @@ BUCKET = os.environ["BUCKET"]
 PROYECTO = os.environ["PROYECTO"]
 REGION = os.environ.get("REGION", "us-central1")
 JOB = os.environ.get("JOB", "oxxo-scraper")
-MAX_MIN_CORRIDA = 60  # si una corrida lleva más de esto, se considera atorada
+MAX_MIN_CORRIDA = 150  # si una corrida lleva más de esto, se considera atorada
 
 app = Flask(__name__, static_folder="static")
 _cubeta = None
@@ -75,9 +76,14 @@ def datos():
             for c in ("respondio", "paginas", "url_final", "es_empresa", "menciones_sector"):
                 r.pop(c, None)
             empresas.append(r)
-    r = jsonify({"empresas": empresas, "corrida": corrida, "estado": estado_actual()})
-    r.headers["Cache-Control"] = "no-store"
-    return r
+    for c in ("bitacora", "lista_descartados"):
+        corrida.pop(c, None)
+    cuerpo = json.dumps({"empresas": empresas, "corrida": corrida, "estado": estado_actual()}, ensure_ascii=False).encode("utf-8")
+    cab = {"Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store"}
+    if "gzip" in request.headers.get("Accept-Encoding", ""):
+        cuerpo = gzip.compress(cuerpo, 5)
+        cab["Content-Encoding"] = "gzip"
+    return Response(cuerpo, headers=cab)
 
 
 @app.get("/api/estado")

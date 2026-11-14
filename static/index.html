@@ -119,8 +119,10 @@ const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLow
 const lista = v => Array.isArray(v) ? v : (v ? [v] : []);
 const urlOk = u => /^https?:\/\//i.test(u || '') ? u : '';
 
+const MOTORES = {places: 'Google Maps', cse: 'Google web (API)', importar: 'Google web (captura)'};
 let EMP = [], CORRIDA = {}, VISTA = [];
-const F = {q: '', estados: new Set(), servicios: new Set(), residuos: new Set(), estatus: new Set(), flags: new Set()};
+const F = {q: '', estados: new Set(), sede: new Set(), servicios: new Set(), residuos: new Set(), fuente: new Set(), estatus: new Set(), flags: new Set()};
+const FILTROS = [['estados', 'Estado (búsqueda)'], ['sede', 'Estado sede'], ['servicios', 'Servicio'], ['residuos', 'Tipo de residuo'], ['fuente', 'Fuente'], ['estatus', 'Estatus']];
 const ORD = {k: 'relevancia', dir: -1};
 let PAGINA = 0; const POR_PAG = 50;
 
@@ -131,6 +133,7 @@ const DIMS = {
   residuos: {t: 'Tipo de residuo', g: r => lista(r.residuos)},
   aut: {t: 'Autorización / certificación', g: r => lista(r.autorizaciones).length ? lista(r.autorizaciones) : ['(ninguna)']},
   estatus: {t: 'Estatus del mes', g: r => [r.estatus_mes || '(sin estatus)']},
+  fuente: {t: 'Fuente', g: r => String(r.fuente || '').split(', ').filter(Boolean).map(m => MOTORES[m] || m)},
 };
 const FLAGS = {tel: ['Con teléfono', r => lista(r.telefonos).length], mail: ['Con correo', r => lista(r.correos).length],
   rs: ['Con razón social', r => r.razon_social], rfc: ['Con RFC', r => r.rfc], dir: ['Con dirección', r => r.direccion]};
@@ -152,8 +155,8 @@ const COLS = [
 
 // ── Filtros ──
 function pasa(r) {
-  for (const [k, d] of [['estados', DIMS.estados], ['servicios', DIMS.servicios], ['residuos', DIMS.residuos], ['estatus', DIMS.estatus]])
-    if (F[k].size && !d.g(r).some(v => F[k].has(v))) return false;
+  for (const [k] of FILTROS)
+    if (F[k].size && !DIMS[k].g(r).some(v => F[k].has(v))) return false;
   for (const f of F.flags) if (!FLAGS[f][1](r)) return false;
   if (F.q) {
     if (!r._txt) r._txt = norm([r.nombre, r.razon_social, r.rfc, r.direccion, r.sitio, r.descripcion, lista(r.correos).join(' '), lista(r.telefonos).join(' '), lista(r.telefonos).join('').replace(/\s/g, ''), lista(r.estados_busqueda).join(' ')].join(' '));
@@ -164,10 +167,10 @@ function pasa(r) {
 function armarFiltros() {
   const cont = $('#filtros');
   cont.querySelectorAll('.ms,.chipf,.limpiar').forEach(e => e.remove());
-  for (const [k, titulo] of [['estados', 'Estado'], ['servicios', 'Servicio'], ['residuos', 'Tipo de residuo'], ['estatus', 'Estatus']]) {
+  for (const [k, titulo] of FILTROS) {
     const cnt = new Map();
     EMP.forEach(r => DIMS[k].g(r).forEach(v => cnt.set(v, (cnt.get(v) || 0) + 1)));
-    const vals = [...cnt.keys()].sort((a, b) => k === 'estados' ? a.localeCompare(b, 'es') : cnt.get(b) - cnt.get(a));
+    const vals = [...cnt.keys()].sort((a, b) => (k === 'estados' || k === 'sede') ? a.localeCompare(b, 'es') : cnt.get(b) - cnt.get(a));
     [...F[k]].forEach(v => cnt.has(v) || F[k].delete(v));
     const ms = document.createElement('div'); ms.className = 'ms';
     ms.innerHTML = `<button class="btn" type="button"></button><div class="panel">${vals.map(v => `<div class="op${F[k].has(v) ? ' sel' : ''}" data-v="${esc(v)}"><span class="pal"></span><span>${esc(v)}</span><span class="n">${cnt.get(v)}</span></div>`).join('')}</div>`;
@@ -189,7 +192,7 @@ function armarFiltros() {
     cont.appendChild(b);
   }
   const l = document.createElement('button'); l.type = 'button'; l.className = 'btn limpiar'; l.textContent = 'Limpiar filtros';
-  l.onclick = () => { F.q = ''; $('#q').value = ''; ['estados', 'servicios', 'residuos', 'estatus', 'flags'].forEach(k => F[k].clear()); armarFiltros(); aplicar(); };
+  l.onclick = () => { F.q = ''; $('#q').value = ''; [...FILTROS.map(f => f[0]), 'flags'].forEach(k => F[k].clear()); armarFiltros(); aplicar(); };
   cont.appendChild(l);
 }
 document.addEventListener('click', () => document.querySelectorAll('.ms.abierto').forEach(o => o.classList.remove('abierto')));
@@ -228,7 +231,7 @@ function ficha(r) {
     ['Autorizaciones', esc(lista(r.autorizaciones).join(', '))], ['Núm. de autorización', esc(r.num_autorizacion)],
     ['Descripción', esc(r.descripcion)], ['Facebook', en(rd.Facebook)], ['LinkedIn', en(rd.LinkedIn)], ['Instagram', en(rd.Instagram)],
     ['Google Maps', en(r.maps)], ['Relevancia', esc(r.relevancia)], ['Frases de búsqueda', esc(lista(r.frases).join(' · '))],
-    ['Estatus del mes', esc(r.estatus_mes)], ['Primera detección', esc(r.primera_deteccion)], ['Última verificación', esc(r.ultima_verificacion)], ['Fuente', esc(r.fuente)]];
+    ['Calificación en Google', esc(r.calificacion)], ['Estatus del mes', esc(r.estatus_mes)], ['Primera detección', esc(r.primera_deteccion)], ['Última verificación', esc(r.ultima_verificacion)], ['Fuente', esc(DIMS.fuente.g(r).join(' + '))]];
   $('#hoja').innerHTML = `<button class="btn" style="float:right" onclick="document.getElementById('modal').classList.remove('on')">Cerrar ✕</button><h2>${esc(r.nombre)}</h2><div class="tenue">${esc(r.clave)}</div><dl>` +
     filas.filter(f => f[1]).map(f => `<dt>${f[0]}</dt><dd>${f[1]}</dd>`).join('') + '</dl>';
   $('#modal').classList.add('on');
@@ -264,13 +267,12 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
 
 // ── Datos y extracción ──
 const fecha = iso => iso ? new Date(iso).toLocaleString('es-MX', {dateStyle: 'medium', timeStyle: 'short'}) : '';
-const MOTORES = {places: 'Google Places API', cse: 'Google Custom Search API', importar: 'búsquedas de Google capturadas'};
 function pintarKpis() {
   const n = f => EMP.filter(f).length, est = new Set(); EMP.forEach(r => lista(r.estados_busqueda).forEach(e => est.add(e)));
   const k = [[EMP.length, 'Empresas'], [est.size + ' / 32', 'Estados con empresas'], [n(r => lista(r.telefonos).length), 'Con teléfono'], [n(r => lista(r.correos).length), 'Con correo'],
     [n(r => r.razon_social), 'Con razón social'], [n(r => r.rfc), 'Con RFC'], [n(r => r.estatus_mes === 'Nuevo'), 'Nuevas en la última corrida']];
   $('#kpis').innerHTML = k.map(([v, t]) => `<div class="kpi"><b>${v}</b><span>${t}</span></div>`).join('');
-  $('#sub').textContent = CORRIDA.fecha ? `Última extracción: ${fecha(CORRIDA.fecha)} · Fuente: ${MOTORES[CORRIDA.motor] || CORRIDA.motor} · ${CORRIDA.consultas} consultas, ${CORRIDA.candidatos} sitios revisados` : 'Aún no se ha ejecutado ninguna extracción.';
+  $('#sub').textContent = CORRIDA.fecha ? `Última extracción: ${fecha(CORRIDA.fecha)} · Fuentes: ${String(CORRIDA.motor || '').split(', ').map(m => MOTORES[m] || m).join(' + ')} · ${CORRIDA.consultas} consultas, ${CORRIDA.candidatos} sitios revisados` : 'Aún no se ha ejecutado ninguna extracción.';
 }
 async function cargar() {
   const d = await (await fetch('/api/datos', {cache: 'no-store'})).json();

@@ -172,6 +172,10 @@ RE_CP = re.compile(r"C\.?\s?P\.?\s*:?\s*(\d{5})\b")
 RE_ENLACE_UTIL = re.compile(r"contact|nosotros|about|quienes|qui[eé]nes|empresa|servicio|aviso|privacidad|privacy|sucursal|ubicaci", re.I)
 
 
+RE_COMPARTIDO = re.compile(r"^(sites\.google\.com|linktr\.ee|wa\.me|wa\.link|api\.whatsapp\.com|bit\.ly|goo\.gl|g\.page|"
+                           r"business\.site|t\.me|beacons\.ai|linkr\.bio|taplink\.cc|walink\.co|msha\.ke|canva\.site|my\.canva\.site)$")
+
+
 def sin_acentos(s):
     return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
 
@@ -214,7 +218,8 @@ def buscar_places(estados, frases, clave, pausa=0.3):
               "places.userRatingCount,places.location,nextPageToken")
     cab = {"X-Goog-Api-Key": clave, "X-Goog-FieldMask": campos, "Content-Type": "application/json"}
     cands, bitacora = [], []
-    for est in estados:
+    for i_est, est in enumerate(estados):
+        AVISAR("Buscando en Google Maps", i_est, len(estados))
         for fr in frases:
             consulta, token, n = "%s %s" % (fr, est), None, 0
             for _ in range(3):
@@ -578,42 +583,87 @@ def exportar_xlsx(base, descartados, bitacora, ruta, hoy):
     return len(regs)
 
 
-def motor_disponible():
+BUSQUEDA_JSON = os.path.join(DATOS, "busqueda_cache.json")
+BUSQUEDA_DIAS = float(os.environ.get("BUSQUEDA_DIAS", "7"))  # las búsquedas de paga se reutilizan este tiempo
+
+
+def motores_disponibles(serp=SERP_JSON):
+    """Todas las fuentes que se pueden usar; los resultados se combinan sin duplicados."""
+    m = []
     if os.environ.get("GOOGLE_MAPS_KEY"):
-        return "places"
+        m.append("places")
     if os.environ.get("GOOGLE_CSE_KEY") and os.environ.get("GOOGLE_CSE_CX"):
-        return "cse"
-    return "importar"
+        m.append("cse")
+    if os.path.exists(serp):
+        m.append("importar")
+    return m
+
+
+def buscar(motores, estados, serp):
+    """Corre cada motor. Las búsquedas por API (de paga) se guardan y se reutilizan BUSQUEDA_DIAS días."""
+    cands, bitacora, de_cache = [], [], False
+    api = [m for m in motores if m != "importar"]
+    if api:
+        cache = None
+        if os.path.exists(BUSQUEDA_JSON):
+            with open(BUSQUEDA_JSON, encoding="utf-8") as f:
+                cache = json.load(f)
+            edad = (dt.datetime.utcnow() - dt.datetime.strptime(cache["fecha"], "%Y-%m-%dT%H:%M:%SZ")).total_seconds() / 86400
+            if cache.get("motores") != api or cache.get("estados") != estados or edad > BUSQUEDA_DIAS:
+                cache = None
+        if cache:
+            cands, bitacora, de_cache = cache["cands"], [tuple(b) for b in cache["bitacora"]], cache["fecha"]
+        else:
+            for m in api:
+                if m == "places":
+                    c, b = buscar_places(estados, PALABRAS_CLAVE, os.environ["GOOGLE_MAPS_KEY"])
+                else:
+                    c, b = buscar_cse(estados, PALABRAS_CLAVE, os.environ["GOOGLE_CSE_KEY"], os.environ["GOOGLE_CSE_CX"])
+                for x in c:
+                    x["motor"] = m
+                cands += c
+                bitacora += b
+            if cands:
+                with open(BUSQUEDA_JSON, "w", encoding="utf-8") as f:
+                    json.dump({"fecha": dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"), "motores": api,
+                               "estados": estados, "cands": cands, "bitacora": bitacora}, f, ensure_ascii=False)
+    if "importar" in motores:
+        c, b = buscar_importar(serp, estados)
+        for x in c:
+            x["motor"] = "importar"
+        cands += c
+        bitacora += b
+    return cands, bitacora, de_cache
 
 
 def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SALIDA_XLSX, serp=SERP_JSON):
     hoy = dt.date.today().isoformat()
     estados = estados or ESTADOS
-    if motor == "auto":
-        motor = motor_disponible()
+    motores = motores_disponibles(serp) if motor == "auto" else [motor]
+    if not motores:
+        sys.exit("No hay fuente de búsqueda: falta GOOGLE_MAPS_KEY, GOOGLE_CSE_KEY+GOOGLE_CSE_CX o serp_google.json")
 
     # 1. Buscar
-    AVISAR("Buscando en Google (%s)" % motor)
-    if motor == "places":
-        clave = os.environ.get("GOOGLE_MAPS_KEY") or sys.exit("Falta GOOGLE_MAPS_KEY")
-        cands, bitacora = buscar_places(estados, PALABRAS_CLAVE, clave)
-    elif motor == "cse":
-        clave, cx = os.environ.get("GOOGLE_CSE_KEY"), os.environ.get("GOOGLE_CSE_CX")
-        if not (clave and cx):
-            sys.exit("Faltan GOOGLE_CSE_KEY y GOOGLE_CSE_CX")
-        cands, bitacora = buscar_cse(estados, PALABRAS_CLAVE, clave, cx)
-    else:
-        cands, bitacora = buscar_importar(serp, estados)
+    AVISAR("Buscando en Google")
+    cands, bitacora, de_cache = buscar(motores, estados, serp)
     print("Resultados de búsqueda: %d (consultas: %d)" % (len(cands), len(bitacora)))
 
     # 2. Agrupar por empresa (dominio o ficha de Maps) y filtrar
     grupos, descartados = {}, {}
     for c in cands:
+        if c["extra"].get("place_id") and c["dominio"] and (motivo_descartar(c["dominio"]) or RE_COMPARTIDO.search(c["dominio"])):
+            # Negocio de Maps cuyo "sitio" es una red social o un servicio compartido: se conserva sin visitar el sitio
+            c = dict(c, dominio="", extra=dict(c["extra"], web=c["url"]))
         clave_emp = c["dominio"] or ("place:" + c["extra"].get("place_id", c["titulo"]))
         motivo = motivo_descartar(c["dominio"]) if c["dominio"] else ""
         destino = descartados if motivo else grupos
         g = destino.setdefault(clave_emp, {"dominio": c["dominio"], "titulo": c["titulo"], "url": c["url"], "estados": [],
-                                           "frases": [], "consultas": set(), "extra": c["extra"], "motivo": motivo})
+                                           "frases": [], "consultas": set(), "extra": c["extra"], "motivo": motivo,
+                                           "motores": []})
+        if c.get("motor", motores[0]) not in g["motores"]:
+            g["motores"].append(c.get("motor", motores[0]))
+        if c["extra"].get("place_id") and not g["extra"].get("place_id"):
+            g["extra"], g["titulo"] = c["extra"], c["titulo"]  # la ficha de Maps manda sobre el resultado web
         if c["estado"] not in g["estados"]:
             g["estados"].append(c["estado"])
         fr = c["consulta"][: -len(c["estado"])].strip()
@@ -658,10 +708,10 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
             continue
         nuevo = dict(r)
         nuevo.update({
-            "sitio": ("https://" + g["dominio"]) if g["dominio"] else "",
+            "sitio": ("https://" + g["dominio"]) if g["dominio"] else x.get("web", ""),
             "nombre": x.get("place_id") and g["titulo"] or r.get("nombre") or g["titulo"],
             "estados_busqueda": sorted(set(previo.get("estados_busqueda", [])) | set(g["estados"]), key=ESTADOS.index),
-            "frases": g["frases"], "n_consultas": len(g["consultas"]), "fuente": motor,
+            "frases": g["frases"], "n_consultas": len(g["consultas"]), "fuente": ", ".join(sorted(g["motores"])),
             "maps": x.get("maps", ""), "calificacion": x.get("calificacion", ""),
         })
         if x.get("telefono"):
@@ -669,7 +719,14 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
         if x.get("direccion"):
             nuevo["direccion"] = x["direccion"]
             d_sa = sin_acentos(x["direccion"]).lower()
-            nuevo["estado_sede"] = next((e for e in sorted(ESTADOS, key=len, reverse=True) if sin_acentos(e).lower() in d_sa), nuevo.get("estado_sede", ""))
+            cp_maps = re.findall(r"\b(\d{5})\b", x["direccion"])
+            if cp_maps:
+                nuevo["cp"] = cp_maps[-1]
+            nuevo["estado_sede"] = (estado_por_cp(cp_maps[-1]) if cp_maps else "") or next(
+                (e for e in sorted(ESTADOS, key=len, reverse=True) if sin_acentos(e).lower() in d_sa), nuevo.get("estado_sede", ""))
+        if not nuevo.get("servicios"):  # sin sitio web: al menos lo que diga el nombre del negocio
+            nuevo["servicios"] = marcar(nuevo["nombre"], SERVICIOS)
+            nuevo["residuos"] = nuevo.get("residuos") or marcar(nuevo["nombre"], RESIDUOS)
         de_maps = bool(x.get("place_id"))
         nuevo["es_empresa"] = de_maps or ((nuevo.get("relevancia") or 0) >= min_relevancia and bool(nuevo.get("servicios")))
         if not nuevo["es_empresa"]:
@@ -690,7 +747,8 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
         json.dump(base, f, ensure_ascii=False, indent=1)
     lista_desc.sort(key=lambda d: (d["motivo"], d["dominio"]))
     n = exportar_xlsx(base, lista_desc, bitacora, salida, hoy)
-    resumen = {"fecha": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z", "motor": motor,
+    resumen = {"fecha": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z", "motor": ", ".join(motores),
+               "busqueda_reutilizada_de": de_cache or "",
                "consultas": len(bitacora), "resultados_busqueda": len(cands), "candidatos": len(grupos),
                "empresas": n, "descartados": len(lista_desc), "por_estatus": dict(cuenta),
                "estados_con_resultados": sorted({b[0] for b in bitacora if b[4]}, key=ESTADOS.index),
