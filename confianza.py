@@ -1004,6 +1004,8 @@ def perfilar(base):
     avisar("Calculando calificación de confianza")
     for k, r in base.items():
         if r.get("es_empresa"):
+            if ":" in k and not k.startswith("place:") and r.get("estatus_mes") == "Nuevo" and r.get("primera_deteccion", "") < HOY():
+                r["estatus_mes"] = "Sin cambios"  # los padrones cargados en corridas anteriores ya no son «nuevos»
             marcar_fuentes(k, r)
             calificar(k, r)
     return res

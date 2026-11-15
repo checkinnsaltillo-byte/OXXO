@@ -1076,7 +1076,9 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
         nuevo = dict(r)
         nuevo.update({
             "sitio": ("https://" + g["dominio"]) if g["dominio"] else x.get("web", ""),
-            "nombre": x.get("place_id") and g["titulo"] or r.get("nombre") or g["titulo"],
+            # con varias sucursales el nombre de una ficha («PASA Aguascalientes») no representa a la empresa: se usa el del sitio
+            "nombre": (r.get("nombre") if len(g["fichas"]) > 1 and r.get("nombre") else "") or
+                      (x.get("place_id") and g["titulo"]) or r.get("nombre") or g["titulo"],
             "estados_busqueda": sorted(set(previo.get("estados_busqueda", [])) | set(g["estados"]), key=ESTADOS.index),
             "frases": g["frases"], "n_consultas": len(g["consultas"]), "fuente": ", ".join(sorted(g["motores"])),
             "maps": x.get("maps", ""), "calificacion": x.get("calificacion", ""), "resenas": x.get("resenas", ""),
