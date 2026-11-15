@@ -193,6 +193,37 @@ CP_RANGOS = [(1, 16, "Ciudad de México"), (20, 20, "Aguascalientes"), (21, 22, 
              (98, 99, "Zacatecas")]
 
 
+# Abreviatura con la que Google termina sus direcciones ("…, 66023 Apodaca, N.L.") -> estado
+ABREV_ESTADO = {"ags": "Aguascalientes", "bc": "Baja California", "bcs": "Baja California Sur", "camp": "Campeche",
+                "chis": "Chiapas", "chih": "Chihuahua", "cdmx": "Ciudad de México", "coah": "Coahuila", "col": "Colima",
+                "dgo": "Durango", "gto": "Guanajuato", "gro": "Guerrero", "hgo": "Hidalgo", "jal": "Jalisco",
+                "mex": "Estado de México", "mich": "Michoacán", "mor": "Morelos", "nay": "Nayarit", "nl": "Nuevo León",
+                "oax": "Oaxaca", "pue": "Puebla", "qro": "Querétaro", "qr": "Quintana Roo", "qroo": "Quintana Roo",
+                "slp": "San Luis Potosí", "sin": "Sinaloa", "son": "Sonora", "tab": "Tabasco", "tamps": "Tamaulipas",
+                "tlax": "Tlaxcala", "ver": "Veracruz", "yuc": "Yucatán", "zac": "Zacatecas"}
+
+
+def estado_de_direccion(direccion):
+    """Estado donde está el negocio según su dirección: abreviatura final, nombre del estado o código postal."""
+    d = (direccion or "").strip()
+    if not d:
+        return ""
+    cola = re.sub(r"[^a-z]", "", sin_acentos(re.sub(r",?\s*M[eé]xico\s*$", "", d).split(",")[-1]).lower())
+    if cola in ABREV_ESTADO:
+        return ABREV_ESTADO[cola]
+    d_sa = sin_acentos(d.split(",")[-1]).lower()
+    por_nombre = next((e for e in sorted(ESTADOS, key=len, reverse=True) if sin_acentos(e).lower() in d_sa), "")
+    if por_nombre:
+        return por_nombre
+    cps = re.findall(r"\b(\d{5})\b", d)
+    return estado_por_cp(cps[-1]) if cps else ""
+
+
+def estado_principal(r):
+    """Estado del registro para filtros y resúmenes: donde está ubicado; si no se sabe, donde apareció en búsquedas."""
+    return [r["estado_sede"]] if r.get("estado_sede") else list(r.get("estados_busqueda") or [])
+
+
 def estado_por_cp(cp):
     n = int(cp[:2])
     return next((e for a, b, e in CP_RANGOS if a <= n <= b), "")
@@ -751,8 +782,8 @@ COLUMNAS = [  # (encabezado, ancho, descripción)
     ("Nombre comercial", 34, "Nombre del sitio (og:site_name / título) o nombre en Google Maps."),
     ("Razón social", 40, "Denominación legal detectada (S.A. de C.V., S. de R.L., etc.), normalmente en el aviso de privacidad."),
     ("RFC", 16, "RFC publicado en el sitio, o el del padrón REPSE cuando la coincidencia es alta."),
-    ("Estado sede", 20, "Estado detectado en la dirección publicada."),
-    ("Estados donde aparece (búsqueda)", 34, "Estados cuyas consultas en Google devolvieron a esta empresa."),
+    ("Estado", 20, "Estado donde está ubicada la empresa, según su dirección o coordenadas. Es el que usan los filtros y el resumen."),
+    ("Apareció en búsquedas de", 34, "Estados cuyas búsquedas devolvieron a esta empresa (puede incluir estados vecinos; no indica ubicación)."),
     ("Cobertura mencionada", 34, "Estados que el sitio menciona en su texto."),
     ("Dirección", 50, "Dirección publicada (datos estructurados o texto alrededor del C.P.)."),
     ("C.P.", 9, "Código postal."),
@@ -859,7 +890,7 @@ def hoja(wb, titulo, encabezados, filas, anchos=None, primera=False):
 
 def exportar_xlsx(base, descartados, bitacora, ruta, hoy):
     regs = [(k, r) for k, r in base.items() if r.get("es_empresa")]
-    regs.sort(key=lambda kr: ((kr[1].get("estados_busqueda") or ["~"])[0], -(kr[1].get("relevancia") or 0)))
+    regs.sort(key=lambda kr: ((estado_principal(kr[1]) or ["~"])[0], -(kr[1].get("confianza") or 0)))
     wb = Workbook()
     ws = hoja(wb, "Directorio", [c[0] for c in COLUMNAS], [a_fila(i, k, r) for i, (k, r) in enumerate(regs, 1)],
               [c[1] for c in COLUMNAS], primera=True)
@@ -874,7 +905,7 @@ def exportar_xlsx(base, descartados, bitacora, ruta, hoy):
 
     por_estado = defaultdict(lambda: [0, 0, 0, 0, 0])
     for _, r in regs:
-        for e in r.get("estados_busqueda", []):
+        for e in estado_principal(r):
             p = por_estado[e]
             p[0] += 1
             p[1] += 1 if r.get("telefonos") else 0
@@ -1048,8 +1079,8 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
             cp_maps = re.findall(r"\b(\d{5})\b", x["direccion"])
             if cp_maps:
                 nuevo["cp"] = cp_maps[-1]
-            nuevo["estado_sede"] = (estado_por_cp(cp_maps[-1]) if cp_maps else "") or next(
-                (e for e in sorted(ESTADOS, key=len, reverse=True) if sin_acentos(e).lower() in d_sa), nuevo.get("estado_sede", ""))
+            # la ubicación de la ficha de Google manda: un negocio que salió al buscar otro estado se queda en el suyo
+            nuevo["estado_sede"] = estado_de_direccion(x["direccion"]) or nuevo.get("estado_sede", "")
         if not nuevo.get("servicios"):  # sin sitio web: al menos lo que diga el nombre del negocio
             nuevo["servicios"] = marcar(nuevo["nombre"], SERVICIOS)
             nuevo["residuos"] = nuevo.get("residuos") or marcar(nuevo["nombre"], RESIDUOS)
