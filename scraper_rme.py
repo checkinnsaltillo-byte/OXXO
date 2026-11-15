@@ -1045,7 +1045,7 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
             nuevo["primera_deteccion"] = previo.get("primera_deteccion", hoy)
         nuevo["ultima_verificacion"] = hoy
         for c, v in previo.items():  # validaciones y cruces se conservan entre corridas
-            if c in CAMPOS_REPSE or c.endswith("_fuente") or c.startswith(("denue_", "sat_", "semarnat", "confianza", "dominio_creado")):
+            if c in CAMPOS_REPSE or c.endswith("_fuente") or c.startswith(("denue_", "sat_", "semarnat", "confianza", "dominio_")):
                 nuevo[c] = v
         for c in ("rfc", "razon_social"):  # dato tomado de REPSE o DENUE: no se pierde si el sitio no lo publica
             if previo.get(c + "_fuente") and not nuevo.get(c):

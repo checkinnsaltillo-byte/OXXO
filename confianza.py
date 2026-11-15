@@ -431,8 +431,10 @@ def dominio_creado(dominio):
             m = re.search(r"Created On:\s*(\d{4}-\d{2}-\d{2})", b.decode("latin-1"))
             return m.group(1) if m else ""
         r = requests.get("https://rdap.org/domain/" + registrable, headers=UA, timeout=20)
-        if r.status_code != 200:
+        if r.status_code == 404:
             return ""
+        if r.status_code != 200:
+            return None  # límite de consultas u otro error: se reintenta
         for e in r.json().get("events", []):
             if e.get("eventAction") == "registration":
                 return e.get("eventDate", "")[:10]
@@ -442,7 +444,7 @@ def dominio_creado(dominio):
 
 
 def dominios(base, hilos=3):
-    pend = [k for k, r in base.items() if r.get("es_empresa") and not k.startswith("place:") and "dominio_creado" not in r
+    pend = [k for k, r in base.items() if r.get("es_empresa") and not k.startswith("place:") and not r.get("dominio_creado") and r.get("dominio_intentos", 0) < 3
             and not re.search(r"(ueniweb|wixsite|blogspot|github\.io|negocio\.site|webnode|weebly|godaddysites)", k)]
     if not pend:
         return 0
@@ -453,7 +455,8 @@ def dominios(base, hilos=3):
         for fu in as_completed(fut):
             hechas += 1
             v = fu.result()
-            if v is not None:
+            base[fut[fu]]["dominio_intentos"] = base[fut[fu]].get("dominio_intentos", 0) + 1
+            if v:
                 base[fut[fu]]["dominio_creado"] = v
             if hechas % 20 == 0 or hechas == len(pend):
                 avisar("Antigüedad de dominios", hechas, len(pend))
