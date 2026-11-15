@@ -62,6 +62,7 @@ th.ord{cursor:pointer}th.ord:hover{color:var(--verde)}
 #tabla tbody tr{cursor:pointer}#tabla tbody tr:hover{background:#f7faf8}
 .tag{display:inline-block;background:var(--suave);color:var(--verde);border-radius:5px;padding:1px 7px;margin:1px 3px 1px 0;font-size:12px;white-space:nowrap}
 .tag.r{background:#f3efe4;color:#6a5417}
+.tag.fu{display:block;width:max-content;margin:2px 0;font-weight:600}.tag.gp{background:#e3ecfb;color:#234f9c}.tag.bw{background:#efe6fa;color:#5b2d91}.tag.dn{background:#fdf1d6;color:#8a5a00}.tag.sm{background:#dff3e3;color:#1c6b33}
 .est{font-size:12px;font-weight:600;border-radius:20px;padding:2px 9px;white-space:nowrap}
 .est.Nuevo{background:#dff3e3;color:#1c6b33}.est.Actualizado{background:#e3ecfb;color:#234f9c}.est.Sin{background:#eceeed;color:#59625f}.est.resp{background:#fbe6e2;color:#9b3023}.est.duda{background:#fdf1d6;color:#8a5a00}
 .cf{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
@@ -179,6 +180,7 @@ const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLow
 const lista = v => Array.isArray(v) ? v : (v ? [v] : []);
 const urlOk = u => /^https?:\/\//i.test(u || '') ? u : '';
 
+const FU_CLS = {'Google Places': 'gp', 'Buscador web': 'bw', 'DENUE': 'dn', 'SEMARNAT': 'sm'};
 const CONF_CLS = {'Alta': 'a', 'Media': 'm', 'Baja': 'b', 'No confiable': 'x', 'Sin información suficiente': 's'};
 const REPSE_CLS = {'Registrado vigente': 'Nuevo', 'Registro vencido': 'resp', 'Sin registro activo': 'resp', 'Coincidencia dudosa': 'duda'};
 const REPSE_ORD = {'Registrado vigente': 1, 'Registro vencido': 2, 'Sin registro activo': 3, 'Coincidencia dudosa': 4, 'No encontrado': 5};
@@ -212,6 +214,7 @@ const FLAGS = {tel: ['Con teléfono', r => lista(r.telefonos).length], mail: ['C
 const COLS = [
   {k: 'nombre', t: 'Empresa', h: r => `<b>${esc(r.nombre)}</b>${r.razon_social ? `<div class="tenue">${esc(r.razon_social)}</div>` : ''}`, o: r => norm(r.nombre)},
   {k: 'confianza', t: 'Confianza', h: r => r.confianza_nivel ? `<div class="cf ${CONF_CLS[r.confianza_nivel] || ''}"><b>${r.confianza_nivel === 'Sin información suficiente' ? '–' : esc(r.confianza)}</b><span>${esc(r.confianza_nivel)}</span></div>${lista(r.confianza_alertas).length ? `<div class="alerta" title="${esc(lista(r.confianza_alertas).join(' · '))}">⚠ ${lista(r.confianza_alertas).length} alerta${lista(r.confianza_alertas).length > 1 ? 's' : ''}</div>` : ''}` : '', o: r => (r.confianza_nivel === 'Sin información suficiente' ? -1 : r.confianza_nivel === 'No confiable' ? -2 : (r.confianza || 0))},
+  {k: 'fuentes', t: 'Fuente', h: r => lista(r.fuentes).map(f => `<span class="tag fu ${FU_CLS[f] || ''}">${esc(f)}</span>`).join(''), o: r => lista(r.fuentes).join(',') || '~'},
   {k: 'rfc', t: 'RFC', h: r => esc(r.rfc), o: r => r.rfc || '~'},
   {k: 'repse_estatus', t: 'REPSE', h: r => r.repse_estatus ? `<span class="est rp ${REPSE_CLS[r.repse_estatus] || 'Sin'}">${esc(r.repse_estatus)}</span>${r.repse_folio ? `<div class="tenue nowrap">Folio ${esc(r.repse_folio)}</div>` : ''}` : '', o: r => (REPSE_ORD[r.repse_estatus] || 9) + String(r.repse_vigencia || '')},
   {k: 'estados_busqueda', t: 'Estado', h: r => esc(lista(r.estados_busqueda).join(', ')) + (r.estado_sede ? `<div class="tenue">Sede: ${esc(r.estado_sede)}</div>` : ''), o: r => norm(lista(r.estados_busqueda)[0] || '~')},

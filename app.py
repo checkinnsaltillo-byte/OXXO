@@ -76,6 +76,7 @@ LISTA = ("nombre", "razon_social", "rfc", "estados_busqueda", "estado_sede", "te
          "repse_estatus", "repse_folio", "repse_vigencia", "confianza", "confianza_nivel", "confianza_alertas",
          "sat_estatus", "semarnat_estatus", "semarnat_rubros", "denue_estatus", "denue_personal", "fuentes", "origen")
 OCULTOS = ("respondio", "paginas", "url_final", "es_empresa", "menciones_sector", "dominio_intentos")
+MOTOR = {"places": "Google Places", "gemini": "Buscador web", "importar": "Buscador web", "cse": "Buscador web"}
 _memo = {"gen": None, "base": {}, "lista": b"", "lista_gz": b""}
 _candado = threading.Lock()
 
@@ -93,6 +94,12 @@ def directorio():
                 corrida.pop(c, None)
             filas = []
             for k, r in base.items():
+                if "fuentes" not in r:  # registros de una corrida anterior al campo de fuentes
+                    mot = [MOTOR.get(m.strip(), m.strip()) for m in str(r.get("fuente") or "").split(",") if m.strip()]
+                    r["fuentes"] = list(dict.fromkeys(mot)) + (["DENUE"] if r.get("denue_estatus") == "Encontrado" else []) + \
+                        (["SEMARNAT"] if r.get("semarnat") else [])
+                    r["origen"] = "DENUE" if k.startswith("denue:") else "SEMARNAT" if k.startswith("semarnat:") else \
+                        "Google Places" if "Google Places" in mot else "Buscador web"
                 f = {c: r[c] for c in LISTA if r.get(c) not in (None, "", [], {})}
                 f["clave"] = k
                 filas.append(f)
