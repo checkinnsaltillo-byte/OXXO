@@ -89,14 +89,85 @@ def parecido(a, b):
 
 # ───────────────────────── 1. IDENTIDAD: DENUE ─────────────────────────
 CELDA = 0.002  # ~220 m
+# Actividades (SCIAN) que entran al directorio como registros propios: manejo de residuos (562) y
+# comercio al por mayor de materiales de desecho (4343). Se excluyen las del sector público.
+SCIAN_GIRO = ("562", "4343")
+SCIAN_RESIDUO = {"434311": ["Metales / chatarra"], "434312": ["Cartón y papel"], "434313": ["Vidrio"], "434314": ["Plásticos"]}
+ENTIDAD = {"coahuila de zaragoza": "Coahuila", "michoacan de ocampo": "Michoacán", "veracruz de ignacio de la llave": "Veracruz",
+           "mexico": "Estado de México", "distrito federal": "Ciudad de México"}
+_SEM_GEO = {}  # clave del grupo SEMARNAT -> fila DENUE (para ubicar en el mapa las empresas del padrón)
+
+
+def estado_std(x):
+    n = s.sin_acentos(x or "").strip().lower()
+    if n in ENTIDAD:
+        return ENTIDAD[n]
+    return next((e for e in s.ESTADOS if s.sin_acentos(e).lower() == n), (x or "").strip())
+
+
+def titulo(x):
+    x = re.sub(r"\s+", " ", x or "").strip()
+    return x.title() if x.isupper() else x
+
+
+def denue_a_registro(f, previo):
+    """Homologa un establecimiento del DENUE a los campos del directorio."""
+    via = " ".join(x for x in (titulo(f["tipo_vial"]), titulo(f["nom_vial"]), f["numero_ext"] or f["letra_ext"]) if x)
+    col = " ".join(x for x in (titulo(f["tipo_asent"]), titulo(f["nomb_asent"])) if x)
+    cp = f["cod_postal"].zfill(5) if f["cod_postal"] else ""
+    estado = estado_std(f["entidad"])
+    direccion = ", ".join(x for x in (via, col, ("C.P. " + cp) if cp else "", titulo(f["municipio"]), estado) if x)
+    texto = "%s %s" % (f["nombre_act"], f["nom_estab"])
+    servicios = s.marcar(texto, s.SERVICIOS)
+    if f["codigo_act"].startswith("4343"):
+        servicios = sorted(set(servicios) | {"Compra de materiales", "Acopio"})
+    elif not servicios:
+        servicios = ["Manejo integral"]
+    residuos = sorted(set(SCIAN_RESIDUO.get(f["codigo_act"], [])) | set(s.marcar(texto, s.RESIDUOS)))
+    tel = s.limpiar_tel(f["telefono"])
+    web = f["www"].strip().lower()
+    if web and not web.startswith("http"):
+        web = "http://" + web
+    hoy = HOY()
+    r = dict(previo or {})
+    r.update({"es_empresa": True, "origen": "DENUE", "nombre": titulo(f["nom_estab"]), "direccion": direccion, "cp": cp,
+              "estado_sede": estado, "estados_busqueda": [estado] if estado in s.ESTADOS else [],
+              "telefonos": [tel] if tel else [], "correos": [f["correoelec"].strip().lower()] if "@" in f["correoelec"] else [],
+              "sitio": web if "." in web else "", "servicios": servicios, "residuos": residuos,
+              "denue_estatus": "Encontrado", "denue_coincidencia": "Registro del DENUE", "denue_id": f["id"],
+              "denue_nombre": f["nom_estab"], "denue_razon_social": f["raz_social"], "denue_scian": f["codigo_act"],
+              "denue_actividad": f["nombre_act"], "denue_personal": f["per_ocu"], "denue_alta": f["fecha_alta"],
+              "denue_ubicacion": ", ".join(x for x in (f["municipio"], f["entidad"]) if x), "denue_verificado": hoy,
+              "estatus_mes": "Sin cambios" if previo else "Nuevo", "primera_deteccion": (previo or {}).get("primera_deteccion", hoy),
+              "ultima_verificacion": hoy})
+    if f["raz_social"] and (not r.get("razon_social") or r.get("razon_social_fuente") == "DENUE"):
+        r["razon_social"], r["razon_social_fuente"] = f["raz_social"], "DENUE"
+    try:
+        r["lat"], r["lng"], r["ubicacion_fuente"] = float(f["latitud"]), float(f["longitud"]), "DENUE"
+    except ValueError:
+        pass
+    return r
 
 
 def identidad(base):
     """Cruza con el DENUE las empresas no cruzadas en los últimos DENUE_DIAS días."""
     limite = (dt.date.today() - dt.timedelta(days=DENUE_DIAS)).isoformat()
-    pend = [k for k, r in base.items() if r.get("es_empresa") and (r.get("denue_verificado") or "") < limite]
-    if not pend:
+    propios = [k for k in base if k.startswith("denue:")]
+    importar = not propios or any((base[k].get("denue_verificado") or "") < limite for k in propios)
+    pend = [k for k, r in base.items() if r.get("es_empresa") and not k.startswith("denue:") and
+            ((r.get("denue_verificado") or "") < limite or (importar and r.get("denue_estatus") != "Encontrado"))]
+    if not pend and not importar:
         return {"denue_pendientes": 0}
+    # Empresas del padrón SEMARNAT: se buscan en el DENUE por teléfono o razón social para darles ubicación
+    sem_nom, sem_tel = defaultdict(list), defaultdict(list)
+    for g, filas in semarnat_grupos().items():
+        sem_nom[g[0]].append(g)
+        for x in filas:
+            for tt in re.split(r"[;/,y]| ext", x["telefono"]):
+                if tel10(tt):
+                    sem_tel[tel10(tt)].append(g)
+    _SEM_GEO.clear()
+    giro = {}  # id DENUE -> fila completa (establecimientos del giro)
     por_tel, por_dom, por_mail, por_celda = defaultdict(list), defaultdict(list), defaultdict(list), defaultdict(list)
     nombres = {}
     for k in pend:
@@ -105,7 +176,7 @@ def identidad(base):
         for t in r.get("telefonos", []):
             if tel10(t):
                 por_tel[tel10(t)].append(k)
-        if not k.startswith("place:"):
+        if ":" not in k:
             por_dom[k].append(k)
         for c in r.get("correos", []):
             por_mail[c.lower()].append(k)
@@ -141,13 +212,24 @@ def identidad(base):
                     continue
                 ix = {c: h.index(c) for c in ("id", "nom_estab", "raz_social", "codigo_act", "nombre_act", "per_ocu",
                                               "cod_postal", "entidad", "municipio", "telefono", "correoelec", "www",
-                                              "latitud", "longitud", "fecha_alta")}
+                                              "latitud", "longitud", "fecha_alta", "tipo_vial", "nom_vial", "numero_ext",
+                                              "letra_ext", "tipo_asent", "nomb_asent")}
+                i_cod, i_act, i_rs, i_tel = ix["codigo_act"], ix["nombre_act"], ix["raz_social"], ix["telefono"]
                 sectores_ok += 1
                 for f in lector:
                     filas_total += 1
                     if len(f) < len(h):
                         continue
                     hits = []
+                    del_giro = f[i_cod].startswith(SCIAN_GIRO) and "blico" not in f[i_act]
+                    if del_giro:
+                        giro[f[ix["id"]]] = {c: f[i].strip() for c, i in ix.items()}
+                    if sem_tel or sem_nom:
+                        gs = sem_tel.get(tel10(f[i_tel])) if f[i_tel] else None
+                        if not gs and f[i_rs]:
+                            gs = [g for g in sem_nom.get(s.nucleo(f[i_rs]), ()) if not g[1] or sinac(estado_std(f[ix["entidad"]])) == g[1]]
+                        for g in gs or ():
+                            _SEM_GEO.setdefault(g, {c: f[i].strip() for c, i in ix.items()})
                     t = f[ix["telefono"]]
                     if t and tel10(t) in por_tel:
                         hits += [(92, "Teléfono", k) for k in por_tel[tel10(t)]]
@@ -181,12 +263,21 @@ def identidad(base):
                                 sim = max([parecido(a, b) for a in nd for b in nombres[k]] or [0])
                                 if sim >= 0.72:
                                     hits.append((60 + sim * 25 - dist / 30, "Ubicación y nombre", k))
+                                elif del_giro and (dist <= 25 or (dist <= 60 and sim >= 0.4)):
+                                    hits.append((55 - dist / 30, "Ubicación y giro", k))  # un negocio del giro en el mismo punto
                     for punt, motivo, k in hits:
                         if k not in mejor or punt > mejor[k][0]:
                             mejor[k] = (punt, motivo, {c: f[i].strip() for c, i in ix.items()})
     avisar("Cruzando con el DENUE (INEGI)", len(DENUE_SECTORES), len(DENUE_SECTORES))
     if not sectores_ok:
         return {"denue_pendientes": len(pend), "denue_error": "no se pudo descargar el DENUE"}
+    # un establecimiento del DENUE corresponde a una sola empresa: gana la coincidencia más fuerte
+    dueno = {}
+    for k, (punt, motivo, f) in sorted(mejor.items(), key=lambda kv: -kv[1][0]):
+        if motivo in ("Ubicación y nombre", "Ubicación y giro") and f["id"] in dueno:
+            del mejor[k]
+        else:
+            dueno.setdefault(f["id"], k)
 
     hallados = nuevas_rs = 0
     for k in pend:
@@ -218,8 +309,19 @@ def identidad(base):
             r["cp"] = f["cod_postal"].zfill(5)
         if not r.get("estado_sede") and r.get("cp"):
             r["estado_sede"] = s.estado_por_cp(r["cp"])
+    # Establecimientos del giro que no corresponden a ninguna empresa ya registrada -> registros nuevos
+    usados = {r.get("denue_id") for k, r in base.items() if not k.startswith("denue:") and r.get("denue_id")}
+    nuevos = 0
+    if importar:
+        for i, f in giro.items():
+            if i in usados:
+                base.pop("denue:" + i, None)  # ya está representado por otra fuente
+                continue
+            nuevos += "denue:" + i not in base
+            base["denue:" + i] = denue_a_registro(f, base.get("denue:" + i))
     return {"denue_pendientes": len(pend), "denue_encontradas": hallados, "denue_razones_sociales": nuevas_rs,
-            "denue_filas": filas_total}
+            "denue_filas": filas_total, "denue_giro": len(giro), "denue_registros_nuevos": nuevos,
+            "denue_registros": sum(1 for k in base if k.startswith("denue:")), "semarnat_ubicadas_en_denue": len(_SEM_GEO)}
 
 
 # ───────────────────────── 2a. SAT ─────────────────────────
@@ -347,6 +449,123 @@ def fecha_iso(x):
     return "%s-%02d-%02d" % (m.group(3), mes, d)
 
 
+RUBRO_SERVICIOS = {"Reciclaje": ["Reciclaje"], "Aprovechamiento": ["Recuperación / valorización"], "Co-procesamiento": ["Co-procesamiento"],
+                   "Reutilización": ["Recuperación / valorización"], "Tratamiento": ["Tratamiento"], "Incineración": ["Tratamiento"],
+                   "Confinamiento": ["Disposición final"], "Recolección y transporte": ["Recolección", "Transporte"],
+                   "Almacenamiento y acopio": ["Acopio", "Almacenamiento temporal"], "Tratamiento RPBI in situ": ["Tratamiento"],
+                   "Tratamiento RPBI ex situ": ["Tratamiento"], "Incineración RPBI": ["Tratamiento"], "Manejo de BPC": ["Tratamiento"],
+                   "Remediación de suelos": ["Remediación"]}
+_SEM = {"filas": None, "rubros": []}
+
+
+def semarnat_filas():
+    """Descarga (una vez por corrida) los padrones de residuos peligrosos y los devuelve como lista de autorizaciones."""
+    if _SEM["filas"] is not None:
+        return _SEM["filas"]
+    todas, cargados = [], []
+    for n_r, (arch, rubro) in enumerate(SEMARNAT_RUBROS.items()):
+        avisar("Descargando padrones SEMARNAT", n_r, len(SEMARNAT_RUBROS))
+        crudo = bajar(SEMARNAT_BASE + arch + ".csv", t=120)
+        if not crudo:
+            continue
+        filas = list(csv.reader(io.StringIO(texto_csv(crudo))))
+        ih = next((i for i, f in enumerate(filas[:6]) if any(c.strip().lower() == "empresa" for c in f)), None)
+        if ih is None:
+            continue
+        cab = [sinac(c) for c in filas[ih]]
+        col = lambda *pal: next((i for i, c in enumerate(cab) if all(p in c for p in pal)), None)  # noqa: E731
+        i_emp, i_res = col("empresa"), col("residuo") if col("residuo") is not None else col("autorizado para")
+        i_tel = col("telefono") if col("telefono") is not None else col("contacto")
+        i_dir = col("direccion") if col("direccion") is not None else col("domicilio")
+        i_aut, i_fin = col("autorizacion"), col("termino")
+        i_edo = next((i for i, c in enumerate(cab) if c == "estado"), None)
+        i_mun = next((i for i, c in enumerate(cab) if c == "municipio"), None)
+        cargados.append(rubro)
+        for f in filas[ih + 1:]:
+            if i_emp is None or len(f) <= i_emp or not f[i_emp].strip():
+                continue
+            g = lambda i: re.sub(r"\s+", " ", f[i]).strip() if i is not None and len(f) > i else ""  # noqa: E731
+            todas.append({"rubro": rubro, "empresa": g(i_emp), "direccion": g(i_dir), "municipio": g(i_mun),
+                          "estado": estado_std(g(i_edo)), "telefono": g(i_tel), "residuos": g(i_res),
+                          "autorizacion": g(i_aut), "vigencia": fecha_iso(g(i_fin))})
+    _SEM["filas"], _SEM["rubros"] = todas, cargados
+    return todas
+
+
+def semarnat_grupos():
+    """Autorizaciones agrupadas por empresa: (razón social normalizada, estado) -> filas."""
+    grupos = defaultdict(list)
+    for x in semarnat_filas():
+        n = s.nucleo(x["empresa"])
+        if n:
+            grupos[(n, sinac(x["estado"]))].append(x)
+    return grupos
+
+
+def semarnat_importar(base):
+    """Crea un registro por cada empresa del padrón SEMARNAT que no esté ya en el directorio."""
+    por_nom, por_tel = set(), set()
+    for k, r in base.items():
+        if not r.get("es_empresa") or k.startswith("semarnat:"):
+            continue
+        for campo in ("razon_social", "repse_razon_social", "denue_razon_social", "nombre"):
+            n = s.nucleo(r.get(campo))
+            if len(n) >= 8 and n not in s.GENERICAS:
+                por_nom.add(n)
+        por_tel.update(tel10(t) for t in r.get("telefonos", []) if tel10(t))
+    hoy, nuevos, vigentes = HOY(), 0, set()
+    for (n, edo), filas in semarnat_grupos().items():
+        tels = [tel10(t) for x in filas for t in re.split(r"[;/,y]| ext", x["telefono"]) if tel10(t)]
+        if n in por_nom or any(t in por_tel for t in tels):
+            continue
+        k = "semarnat:%s|%s" % (n, edo)
+        vigentes.add(k)
+        previo = base.get(k)
+        x0 = filas[0]
+        texto = " ".join(x["residuos"] for x in filas)
+        residuos = {"Peligrosos (RP)"} | set(s.marcar(texto, s.RESIDUOS))
+        if any("RPBI" in x["rubro"] for x in filas):
+            residuos.add("Biológico-infecciosos (RPBI)")
+        r = dict(previo or {})
+        r.update({"es_empresa": True, "origen": "SEMARNAT", "nombre": x0["empresa"], "razon_social": x0["empresa"],
+                  "razon_social_fuente": "SEMARNAT", "direccion": x0["direccion"], "estado_sede": x0["estado"],
+                  "estados_busqueda": sorted({x["estado"] for x in filas if x["estado"] in s.ESTADOS}, key=s.ESTADOS.index),
+                  "telefonos": list(dict.fromkeys(s.limpiar_tel(t) for t in tels if s.limpiar_tel(t)))[:5],
+                  "servicios": sorted({sv for x in filas for sv in RUBRO_SERVICIOS.get(x["rubro"], [])}),
+                  "residuos": sorted(residuos), "autorizaciones": ["SEMARNAT"],
+                  "num_autorizacion": next((x["autorizacion"] for x in filas if x["autorizacion"]), ""),
+                  "estatus_mes": "Sin cambios" if previo else "Nuevo", "primera_deteccion": (previo or {}).get("primera_deteccion", hoy),
+                  "ultima_verificacion": hoy})
+        r.setdefault("correos", [])
+        cp = re.search(r"C\.?\s?P\.?\s*(\d{5})", x0["direccion"])
+        if cp:
+            r["cp"] = cp.group(1)
+        f = _SEM_GEO.get((n, edo))
+        if f:  # la misma empresa localizada en el DENUE: ubicación, tamaño y actividad
+            try:
+                r["lat"], r["lng"], r["ubicacion_fuente"] = float(f["latitud"]), float(f["longitud"]), "DENUE"
+            except ValueError:
+                pass
+            r.update({"denue_estatus": "Encontrado", "denue_coincidencia": "Teléfono o razón social", "denue_id": f["id"],
+                      "denue_nombre": f["nom_estab"], "denue_razon_social": f["raz_social"], "denue_scian": f["codigo_act"],
+                      "denue_actividad": f["nombre_act"], "denue_personal": f["per_ocu"], "denue_alta": f["fecha_alta"],
+                      "denue_verificado": hoy})
+            if not r.get("cp") and f["cod_postal"]:
+                r["cp"] = f["cod_postal"].zfill(5)
+            if "@" in f["correoelec"] and not r["correos"]:
+                r["correos"] = [f["correoelec"].lower()]
+            if f["www"] and not r.get("sitio"):
+                r["sitio"] = f["www"].lower() if f["www"].lower().startswith("http") else "http://" + f["www"].lower()
+        elif not previo:
+            r.update({"denue_estatus": "No encontrado", "denue_verificado": hoy})
+        nuevos += previo is None
+        base[k] = r
+    for k in [k for k in base if k.startswith("semarnat:") and k not in vigentes]:
+        base.pop(k)  # ya está representada por un registro de otra fuente
+    return {"semarnat_registros_nuevos": nuevos, "semarnat_registros": len(vigentes),
+            "semarnat_con_ubicacion": sum(1 for k in vigentes if base[k].get("lat"))}
+
+
 def semarnat_cruzar(base):
     emp = [(k, r) for k, r in base.items() if r.get("es_empresa")]
     por_nom, por_tel = defaultdict(set), defaultdict(set)
@@ -360,39 +579,22 @@ def semarnat_cruzar(base):
         for t in r.get("telefonos", []):
             if tel10(t):
                 por_tel[tel10(t)].add(k)
-    aut, cargados = defaultdict(list), []
-    for n_r, (arch, rubro) in enumerate(SEMARNAT_RUBROS.items()):
-        avisar("Cruzando con padrones SEMARNAT", n_r, len(SEMARNAT_RUBROS))
-        crudo = bajar(SEMARNAT_BASE + arch + ".csv", t=120)
-        if not crudo:
-            continue
-        filas = list(csv.reader(io.StringIO(texto_csv(crudo))))
-        ih = next((i for i, f in enumerate(filas[:6]) if any(c.strip().lower() == "empresa" for c in f)), None)
-        if ih is None:
-            continue
-        cab = [sinac(c) for c in filas[ih]]
-        col = lambda *pal: next((i for i, c in enumerate(cab) if all(p in c for p in pal)), None)  # noqa: E731
-        i_emp, i_tel, i_res = col("empresa"), col("telefono"), col("residuo")
-        i_aut, i_fin, i_edo, i_mun = col("autorizacion"), col("vigencia", "term"), col("estado"), col("municipio")
-        cargados.append(rubro)
-        for f in filas[ih + 1:]:
-            if i_emp is None or len(f) <= i_emp or not f[i_emp].strip():
-                continue
-            ks = set(por_nom.get(s.nucleo(f[i_emp]), ()))
-            cruce = "razón social"
-            if not ks and i_tel is not None and len(f) > i_tel:
-                for t in re.split(r"[;/,y]| ext", f[i_tel]):
-                    if tel10(t) in por_tel:
-                        ks |= por_tel[tel10(t)]
-                        cruce = "teléfono"
-            g = lambda i: f[i].strip() if i is not None and len(f) > i else ""  # noqa: E731
-            for k in ks:
-                aut[k].append({"rubro": rubro, "empresa": f[i_emp].strip(), "autorizacion": g(i_aut),
-                               "vigencia": fecha_iso(g(i_fin)), "estado": g(i_edo), "municipio": g(i_mun),
-                               "residuos": g(i_res)[:220], "cruce": cruce})
-    avisar("Cruzando con padrones SEMARNAT", len(SEMARNAT_RUBROS), len(SEMARNAT_RUBROS))
-    if not cargados:
+    filas = semarnat_filas()
+    if not _SEM["rubros"]:
         return {"semarnat_error": "no se pudo descargar ningún padrón SEMARNAT"}
+    aut = defaultdict(list)
+    for x in filas:
+        ks = set(por_nom.get(s.nucleo(x["empresa"]), ()))
+        cruce = "razón social"
+        if not ks:
+            for t in re.split(r"[;/,y]| ext", x["telefono"]):
+                if tel10(t) in por_tel:
+                    ks |= por_tel[tel10(t)]
+                    cruce = "teléfono"
+        for k in ks:
+            aut[k].append({"rubro": x["rubro"], "empresa": x["empresa"], "autorizacion": x["autorizacion"],
+                           "vigencia": x["vigencia"], "estado": x["estado"], "municipio": x["municipio"],
+                           "residuos": x["residuos"][:220], "cruce": cruce})
     hoy, con = HOY(), 0
     for k, r in emp:
         a = sorted(aut.get(k, []), key=lambda x: x["vigencia"], reverse=True)
@@ -405,7 +607,23 @@ def semarnat_cruzar(base):
             con += 1
             r["semarnat_estatus"] = "Autorización vigente" if any(x["vigencia"] >= hoy for x in a) else \
                 "Autorización vencida" if all(x["vigencia"] for x in a) else "Autorización (vigencia no publicada)"
-    return {"semarnat_rubros": cargados, "semarnat_con_autorizacion": con}
+    return {"semarnat_rubros": _SEM["rubros"], "semarnat_con_autorizacion": con}
+
+
+FUENTE_MOTOR = {"places": "Google Places", "gemini": "Buscador web", "importar": "Buscador web", "cse": "Buscador web"}
+
+
+def marcar_fuentes(k, r):
+    """`origen`: de dónde salió el registro. `fuentes`: todas las fuentes donde aparece."""
+    motores = [FUENTE_MOTOR.get(m.strip(), m.strip()) for m in str(r.get("fuente") or "").split(",") if m.strip()]
+    fs = list(dict.fromkeys(motores))
+    if r.get("denue_estatus") == "Encontrado":
+        fs.append("DENUE")
+    if r.get("semarnat"):
+        fs.append("SEMARNAT")
+    r["fuentes"] = fs
+    r["origen"] = "DENUE" if k.startswith("denue:") else "SEMARNAT" if k.startswith("semarnat:") else \
+        "Google Places" if "Google Places" in motores else "Buscador web"
 
 
 def sinac(x):
@@ -444,7 +662,7 @@ def dominio_creado(dominio):
 
 
 def dominios(base, hilos=3):
-    pend = [k for k, r in base.items() if r.get("es_empresa") and not k.startswith("place:") and not r.get("dominio_creado") and r.get("dominio_intentos", 0) < 3
+    pend = [k for k, r in base.items() if r.get("es_empresa") and ":" not in k and not r.get("dominio_creado") and r.get("dominio_intentos", 0) < 3
             and not re.search(r"(ueniweb|wixsite|blogspot|github\.io|negocio\.site|webnode|weebly|godaddysites)", k)]
     if not pend:
         return 0
@@ -556,7 +774,7 @@ def calificar(k, r):
             alertas.append("Calificación baja en Google (%.1f)" % cal)
     else:
         p += 3
-    if not k.startswith("place:"):
+    if ":" not in k:
         p += 3
         partes.append("sitio propio")
         if str(r.get("url_final", "")).startswith("https://"):
@@ -576,7 +794,8 @@ def calificar(k, r):
 
     total = sum(b["p"] for b in bloques)
     verificadas = sum(1 for b in bloques[:4] if b["v"])
-    nivel = "No confiable" if descarte else "Sin información suficiente" if verificadas == 0 and not alertas else \
+    # existir en el DENUE no dice nada sobre cumplimiento: sin dato fiscal, laboral ni ambiental no se califica
+    nivel = "No confiable" if descarte else "Sin información suficiente" if not any(b["v"] for b in bloques[:3]) and not alertas else \
         "Alta" if total >= 75 else "Media" if total >= 55 else "Baja"
     r.update({"confianza": 0 if descarte else total, "confianza_nivel": nivel, "confianza_bloques": bloques,
               "confianza_alertas": alertas, "confianza_verificadas": verificadas,
@@ -585,7 +804,7 @@ def calificar(k, r):
 
 def perfilar(base):
     res = {}
-    for paso in (sat_cruzar, semarnat_cruzar):
+    for paso in (semarnat_importar, sat_cruzar, semarnat_cruzar):
         try:
             res.update(paso(base))
         except Exception as e:  # una fuente caída no detiene la corrida
@@ -597,5 +816,6 @@ def perfilar(base):
     avisar("Calculando calificación de confianza")
     for k, r in base.items():
         if r.get("es_empresa"):
+            marcar_fuentes(k, r)
             calificar(k, r)
     return res

@@ -561,7 +561,8 @@ def enriquecer(dominio, url_inicio):
 # Padrón Público de Contratistas de Servicios Especializados (STPS): https://repse.stps.gob.mx
 # Se usa la misma consulta pública del portal («Consultar Padrón»): buscar por nombre / RFC y abrir el registro.
 REPSE_URL = "https://repse.stps.gob.mx/"
-REPSE_DIAS = float(os.environ.get("REPSE_DIAS", "28"))  # cada empresa se vuelve a validar pasado este plazo
+REPSE_DIAS = float(os.environ.get("REPSE_DIAS", "28"))
+REPSE_MAX = int(os.environ.get("REPSE_MAX", "7000"))  # tope de empresas a validar por corrida  # cada empresa se vuelve a validar pasado este plazo
 RE_SUFIJO_LEGAL = re.compile(r"\b(S\s?A\s?P\s?I|S\s?A\s?B|S\s?A\s?S|S\s?A|S\s?C|A\s?C|S\s?P\s?R|S)?\s*(DE\s+)?(R\s?L|C\s?V)(\s+DE\s+C\s?V)?\s*$|\bS\s?A\s*$|\bS\s?C\s*$|\bA\s?C\s*$")
 GENERICAS = {"RECICLAJE", "RECICLADORA", "RECICLADOS", "RESIDUOS", "RECOLECCION", "AMBIENTAL", "SERVICIOS", "GRUPO",
              "MEXICO", "ECOLOGIA", "RECICLA", "CHATARRA", "METALES", "PLASTICOS", "INDUSTRIAL", "INDUSTRIALES"}
@@ -702,7 +703,16 @@ CAMPOS_REPSE = ["repse_estatus", "repse_folio", "repse_razon_social", "repse_rfc
 def repse_todas(base, hilos=3):
     """Valida en REPSE las empresas del directorio que no se han validado en los últimos REPSE_DIAS días."""
     limite = (dt.date.today() - dt.timedelta(days=REPSE_DIAS)).isoformat()
-    pend = [k for k, r in base.items() if r.get("es_empresa") and (r.get("repse_verificado") or "") < limite]
+    pend = []
+    for k, r in base.items():
+        if not r.get("es_empresa") or (r.get("repse_verificado") or "") >= limite:
+            continue
+        if k.startswith(("denue:", "semarnat:")) and not r.get("razon_social"):
+            r.update({"repse_estatus": "Sin razón social para buscar", "repse_verificado": dt.date.today().isoformat()})
+            continue
+        pend.append(k)
+    pend.sort(key=lambda k: (not base[k].get("razon_social"), k.startswith("denue:")))  # primero las de dato más firme
+    pend = pend[:REPSE_MAX]
     if not pend:
         return 0, 0
     cli = Repse()
@@ -715,7 +725,7 @@ def repse_todas(base, hilos=3):
     AVISAR("Validando en REPSE", 0, len(pend))
 
     def una(k):
-        return k, repse_validar(cli, base[k], "" if k.startswith("place:") else k)
+        return k, repse_validar(cli, base[k], "" if ":" in k else k)
 
     with ThreadPoolExecutor(max_workers=hilos) as ex:
         futuros = [ex.submit(una, k) for k in pend]
@@ -789,11 +799,19 @@ COLUMNAS = [  # (encabezado, ancho, descripción)
     ("Frases de búsqueda", 45, "Frases con las que apareció."),
     ("Estatus del mes", 15, "Nuevo / Actualizado / Sin cambios / Sin respuesta."),
     ("Primera detección", 14, ""), ("Última verificación", 14, ""),
-    ("Fuente", 16, "Motor de búsqueda de origen."),
+    ("Fuentes", 30, "Todas las fuentes donde aparece la empresa: Google Places, Buscador web, DENUE, SEMARNAT."),
+    ("Origen del registro", 16, "Fuente que dio de alta el registro en el directorio."),
 ]
 
 
+RE_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
 def a_fila(i, k, r):
+    return [RE_CONTROL.sub("", v) if isinstance(v, str) else v for v in _a_fila(i, k, r)]
+
+
+def _a_fila(i, k, r):
     j = lambda v: "; ".join(v) if isinstance(v, list) else (v or "")
     rd = r.get("redes", {})
     return [i, r.get("nombre", ""), r.get("razon_social", ""), r.get("rfc", ""), r.get("estado_sede", ""),
@@ -812,7 +830,7 @@ def a_fila(i, k, r):
             r.get("descripcion", ""), rd.get("Facebook", ""), rd.get("LinkedIn", ""), rd.get("Instagram", ""),
             r.get("maps", ""), r.get("calificacion", ""), r.get("relevancia", ""), r.get("n_consultas", ""),
             j(r.get("frases", [])), r.get("estatus_mes", ""), r.get("primera_deteccion", ""), r.get("ultima_verificacion", ""),
-            r.get("fuente", "")]
+            j(r.get("fuentes", [])), r.get("origen", "")]
 
 
 def hoja(wb, titulo, encabezados, filas, anchos=None, primera=False):
@@ -837,7 +855,7 @@ def hoja(wb, titulo, encabezados, filas, anchos=None, primera=False):
 
 def exportar_xlsx(base, descartados, bitacora, ruta, hoy):
     regs = [(k, r) for k, r in base.items() if r.get("es_empresa")]
-    regs.sort(key=lambda kr: (kr[1].get("estados_busqueda", ["~"])[0], -(kr[1].get("relevancia") or 0)))
+    regs.sort(key=lambda kr: ((kr[1].get("estados_busqueda") or ["~"])[0], -(kr[1].get("relevancia") or 0)))
     wb = Workbook()
     ws = hoja(wb, "Directorio", [c[0] for c in COLUMNAS], [a_fila(i, k, r) for i, (k, r) in enumerate(regs, 1)],
               [c[1] for c in COLUMNAS], primera=True)

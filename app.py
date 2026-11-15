@@ -12,6 +12,7 @@ import datetime as dt
 import gzip
 import json
 import os
+import threading
 
 import google.auth
 from flask import Flask, Response, jsonify, request, send_from_directory
@@ -64,26 +65,57 @@ def inicio():
     return r
 
 
+# Campos que viajan en la lista (tabla, filtros, mapa). El resto se pide por empresa al abrir su detalle.
+LISTA = ("nombre", "razon_social", "rfc", "estados_busqueda", "estado_sede", "telefonos", "correos", "sitio", "servicios",
+         "residuos", "direccion", "relevancia", "estatus_mes", "ultima_verificacion", "lat", "lng", "maps",
+         "repse_estatus", "repse_folio", "repse_vigencia", "confianza", "confianza_nivel", "confianza_alertas",
+         "sat_estatus", "semarnat_estatus", "semarnat_rubros", "denue_estatus", "denue_personal", "fuentes", "origen")
+OCULTOS = ("respondio", "paginas", "url_final", "es_empresa", "menciones_sector", "dominio_intentos")
+_memo = {"gen": None, "base": {}, "lista": b"", "lista_gz": b""}
+_candado = threading.Lock()
+
+
+def directorio():
+    """Base en memoria; se vuelve a leer del bucket solo cuando el archivo cambió."""
+    b = cubeta().get_blob("directorio_rme.json")
+    gen = b.generation if b else None
+    with _candado:
+        if gen != _memo["gen"]:
+            base = json.loads(b.download_as_bytes()) if b else {}
+            base = {k: r for k, r in base.items() if r.get("es_empresa")}
+            corrida = leer("ultima_corrida.json", {})
+            for c in ("bitacora", "lista_descartados"):
+                corrida.pop(c, None)
+            filas = []
+            for k, r in base.items():
+                f = {c: r[c] for c in LISTA if r.get(c) not in (None, "", [], {})}
+                f["clave"] = k
+                filas.append(f)
+            cuerpo = json.dumps({"empresas": filas, "corrida": corrida}, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            _memo.update({"gen": gen, "base": base, "lista": cuerpo, "lista_gz": gzip.compress(cuerpo, 6)})
+    return _memo
+
+
 @app.get("/api/datos")
 def datos():
-    base = leer("directorio_rme.json", {})
-    corrida = leer("ultima_corrida.json", {})
-    empresas = []
-    for k, r in base.items():
-        if r.get("es_empresa"):
-            r = dict(r)
-            r["clave"] = k
-            for c in ("respondio", "paginas", "url_final", "es_empresa", "menciones_sector"):
-                r.pop(c, None)
-            empresas.append(r)
-    for c in ("bitacora", "lista_descartados"):
-        corrida.pop(c, None)
-    cuerpo = json.dumps({"empresas": empresas, "corrida": corrida, "estado": estado_actual()}, ensure_ascii=False).encode("utf-8")
+    m = directorio()
     cab = {"Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store"}
     if "gzip" in request.headers.get("Accept-Encoding", ""):
-        cuerpo = gzip.compress(cuerpo, 5)
         cab["Content-Encoding"] = "gzip"
-    return Response(cuerpo, headers=cab)
+        return Response(m["lista_gz"], headers=cab)
+    return Response(m["lista"], headers=cab)
+
+
+@app.get("/api/empresa")
+def empresa():
+    r = directorio()["base"].get(request.args.get("clave", ""))
+    if not r:
+        return jsonify({"error": "no encontrada"}), 404
+    r = {c: v for c, v in r.items() if c not in OCULTOS}
+    r["clave"] = request.args["clave"]
+    resp = jsonify(r)
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 @app.get("/api/estado")
