@@ -56,6 +56,21 @@ th.ord{cursor:pointer}th.ord:hover{color:var(--verde)}
 .tag.r{background:#f3efe4;color:#6a5417}
 .est{font-size:12px;font-weight:600;border-radius:20px;padding:2px 9px;white-space:nowrap}
 .est.Nuevo{background:#dff3e3;color:#1c6b33}.est.Actualizado{background:#e3ecfb;color:#234f9c}.est.Sin{background:#eceeed;color:#59625f}.est.resp{background:#fbe6e2;color:#9b3023}.est.duda{background:#fdf1d6;color:#8a5a00}
+.cf{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.cf b{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:26px;border-radius:7px;font-size:13.5px;color:#fff;background:#8a9591}
+.cf span{font-size:12px;color:var(--gris)}
+.cf.a b{background:#1c8a4a}.cf.m b{background:#c58a12}.cf.b b{background:#c0562a}.cf.x b{background:#8f1d1d}.cf.s b{background:#a9b3b0}
+.alerta{color:#a3341f;font-size:12px;font-weight:600;margin-top:3px;white-space:nowrap}
+.perfil{background:var(--papel);border:1px solid var(--linea);border-radius:10px;padding:12px 14px;margin-bottom:14px}
+.perfil h4{margin:0 0 8px;font-size:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.perfil table{width:100%;border-collapse:collapse}
+.perfil td,.perfil th{padding:6px 8px;border-bottom:1px solid var(--linea);font-size:13px;position:static;background:none;text-transform:none;letter-spacing:0;max-width:none!important;white-space:normal}
+.perfil th{color:var(--gris);font-weight:600;font-size:12px}
+.perfil tr:last-child td{border-bottom:0}
+.perfil .barra{display:inline-block;width:70px;height:7px;border-radius:4px;background:#e3e9e6;vertical-align:middle;margin-right:7px;overflow:hidden}
+.perfil .barra i{display:block;height:100%;background:var(--verde2)}
+.perfil .al{margin:8px 0 0;padding:8px 10px;background:#fdecea;border-radius:8px;color:#8f2d22;font-size:13px}
+.perfil ul{margin:6px 0 0 18px;padding:0;font-size:13px}
 .tenue{color:var(--gris)}.nowrap{white-space:nowrap}
 a{color:#17605a}
 .pie{display:flex;gap:10px;align-items:center;justify-content:flex-end;padding:10px 2px;color:var(--gris);font-size:13px}
@@ -154,13 +169,14 @@ const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLow
 const lista = v => Array.isArray(v) ? v : (v ? [v] : []);
 const urlOk = u => /^https?:\/\//i.test(u || '') ? u : '';
 
+const CONF_CLS = {'Alta': 'a', 'Media': 'm', 'Baja': 'b', 'No confiable': 'x', 'Sin información suficiente': 's'};
 const REPSE_CLS = {'Registrado vigente': 'Nuevo', 'Registro vencido': 'resp', 'Sin registro activo': 'resp', 'Coincidencia dudosa': 'duda'};
 const REPSE_ORD = {'Registrado vigente': 1, 'Registro vencido': 2, 'Sin registro activo': 3, 'Coincidencia dudosa': 4, 'No encontrado': 5};
 const MOTORES = {places: 'Google Maps', gemini: 'Google web (Gemini)', cse: 'Google web (API)', importar: 'Google web (captura)'};
 let EMP = [], CORRIDA = {}, VISTA = [];
-const F = {q: '', estados: new Set(), sede: new Set(), servicios: new Set(), residuos: new Set(), repse: new Set(), fuente: new Set(), estatus: new Set(), flags: new Set()};
-const FILTROS = [['estados', 'Estado (búsqueda)'], ['sede', 'Estado sede'], ['servicios', 'Servicio'], ['residuos', 'Tipo de residuo'], ['repse', 'REPSE'], ['fuente', 'Fuente'], ['estatus', 'Estatus']];
-const ORD = {k: 'relevancia', dir: -1};
+const F = {confianza: new Set(), sat: new Set(), semarnat: new Set(), q: '', estados: new Set(), sede: new Set(), servicios: new Set(), residuos: new Set(), repse: new Set(), fuente: new Set(), estatus: new Set(), flags: new Set()};
+const FILTROS = [['confianza', 'Confianza'], ['estados', 'Estado (búsqueda)'], ['sede', 'Estado sede'], ['servicios', 'Servicio'], ['residuos', 'Tipo de residuo'], ['repse', 'REPSE'], ['sat', 'SAT'], ['semarnat', 'SEMARNAT'], ['fuente', 'Fuente'], ['estatus', 'Estatus']];
+const ORD = {k: 'confianza', dir: -1};
 let PAGINA = 0; const POR_PAG = 50;
 
 const DIMS = {
@@ -170,14 +186,21 @@ const DIMS = {
   residuos: {t: 'Tipo de residuo', g: r => lista(r.residuos)},
   aut: {t: 'Autorización / certificación', g: r => lista(r.autorizaciones).length ? lista(r.autorizaciones) : ['(ninguna)']},
   estatus: {t: 'Estatus del mes', g: r => [r.estatus_mes || '(sin estatus)']},
+  confianza: {t: 'Nivel de confianza', g: r => [r.confianza_nivel || 'Sin calificar']},
+  sat: {t: 'SAT (69 / 69-B)', g: r => [r.sat_estatus || 'Sin cruzar']},
+  semarnat: {t: 'SEMARNAT', g: r => [r.semarnat_estatus || 'Sin cruzar']},
+  semrubro: {t: 'SEMARNAT: rubro autorizado', g: r => lista(r.semarnat_rubros).length ? lista(r.semarnat_rubros) : ['(ninguno)']},
+  denue: {t: 'DENUE', g: r => [r.denue_estatus || 'Sin cruzar']},
+  tamano: {t: 'Personal ocupado (DENUE)', g: r => [r.denue_personal || '(sin dato)']},
   repse: {t: 'REPSE', g: r => [r.repse_estatus || 'Sin validar']},
   fuente: {t: 'Fuente', g: r => String(r.fuente || '').split(', ').filter(Boolean).map(m => MOTORES[m] || m)},
 };
 const FLAGS = {tel: ['Con teléfono', r => lista(r.telefonos).length], mail: ['Con correo', r => lista(r.correos).length],
-  rs: ['Con razón social', r => r.razon_social], rfc: ['Con RFC', r => r.rfc], repse: ['Con REPSE vigente', r => r.repse_estatus === 'Registrado vigente'], dir: ['Con dirección', r => r.direccion]};
+  rs: ['Con razón social', r => r.razon_social], rfc: ['Con RFC', r => r.rfc], repse: ['Con REPSE vigente', r => r.repse_estatus === 'Registrado vigente'], alerta: ['Con alertas', r => lista(r.confianza_alertas).length], dir: ['Con dirección', r => r.direccion]};
 
 const COLS = [
   {k: 'nombre', t: 'Empresa', h: r => `<b>${esc(r.nombre)}</b>${r.razon_social ? `<div class="tenue">${esc(r.razon_social)}</div>` : ''}`, o: r => norm(r.nombre)},
+  {k: 'confianza', t: 'Confianza', h: r => r.confianza_nivel ? `<div class="cf ${CONF_CLS[r.confianza_nivel] || ''}"><b>${r.confianza_nivel === 'Sin información suficiente' ? '–' : esc(r.confianza)}</b><span>${esc(r.confianza_nivel)}</span></div>${lista(r.confianza_alertas).length ? `<div class="alerta" title="${esc(lista(r.confianza_alertas).join(' · '))}">⚠ ${lista(r.confianza_alertas).length} alerta${lista(r.confianza_alertas).length > 1 ? 's' : ''}</div>` : ''}` : '', o: r => (r.confianza_nivel === 'Sin información suficiente' ? -1 : r.confianza_nivel === 'No confiable' ? -2 : (r.confianza || 0))},
   {k: 'rfc', t: 'RFC', h: r => esc(r.rfc), o: r => r.rfc || '~'},
   {k: 'repse_estatus', t: 'REPSE', h: r => r.repse_estatus ? `<span class="est rp ${REPSE_CLS[r.repse_estatus] || 'Sin'}">${esc(r.repse_estatus)}</span>${r.repse_folio ? `<div class="tenue nowrap">Folio ${esc(r.repse_folio)}</div>` : ''}` : '', o: r => (REPSE_ORD[r.repse_estatus] || 9) + String(r.repse_vigencia || '')},
   {k: 'estados_busqueda', t: 'Estado', h: r => esc(lista(r.estados_busqueda).join(', ')) + (r.estado_sede ? `<div class="tenue">Sede: ${esc(r.estado_sede)}</div>` : ''), o: r => norm(lista(r.estados_busqueda)[0] || '~')},
@@ -278,6 +301,10 @@ function detalle(r) {
     ['Facebook', en(rd.Facebook)], ['LinkedIn', en(rd.LinkedIn)], ['Instagram', en(rd.Instagram)], ['Google Maps', en(r.maps)],
     ['Calificación en Google', esc(r.calificacion)], ['Relevancia', esc(r.relevancia)], ['Estatus del mes', esc(r.estatus_mes)],
     ['Primera detección', esc(r.primera_deteccion)], ['Última verificación', esc(r.ultima_verificacion)], ['Fuente', esc(DIMS.fuente.g(r).join(' + '))],
+    ['DENUE', esc(r.denue_estatus ? r.denue_estatus + (r.denue_coincidencia ? ' (cruce por ' + r.denue_coincidencia.toLowerCase() + ')' : '') : '')],
+    ['Nombre en DENUE', esc(r.denue_nombre)], ['Actividad (DENUE)', esc(r.denue_actividad)], ['Personal ocupado (DENUE)', esc(r.denue_personal)],
+    ['Alta en DENUE', esc(r.denue_alta)], ['Origen de la razón social', esc(r.razon_social_fuente)], ['Origen del RFC', esc(r.rfc_fuente)],
+    ['Dominio registrado', esc(r.dominio_creado)], ['Reseñas en Google', esc(r.resenas)],
     ['REPSE', r.repse_estatus ? `<span class="est ${REPSE_CLS[r.repse_estatus] || 'Sin'}">${esc(r.repse_estatus)}</span>` : ''], ['Folio REPSE', esc(r.repse_folio)],
     ['Razón social en REPSE', esc(r.repse_razon_social)], ['RFC en REPSE', esc(r.repse_rfc)],
     ['Entidad / municipio REPSE', esc([r.repse_entidad, r.repse_municipio].filter(Boolean).join(' / '))], ['Aviso de registro', esc(r.repse_aviso)],
@@ -288,8 +315,20 @@ function detalle(r) {
     ['Descripción', esc(r.descripcion), 1], ['Frases de búsqueda', esc(lista(r.frases).join(' · ')), 1]];
   return `<div class="in"><div class="tit"><b>${esc(r.nombre)}</b><span class="tenue">${esc(r.clave.startsWith('place:') ? '' : r.clave)}</span>` +
     `<span class="der"></span>${r.lat && r.lng ? '<button class="btn" type="button" data-vermapa>🗺️ Ver en el mapa</button>' : '<span class="tenue">Sin ubicación en el mapa</span>'}` +
-    `<button class="btn" type="button" data-cerrar>Cerrar ✕</button></div><div class="campos">` +
+    `<button class="btn" type="button" data-cerrar>Cerrar ✕</button></div>${perfil(r)}<div class="campos">` +
     filas.filter(f => f[1]).map(f => `<div${f[2] ? ' class="ancho"' : ''}><span>${f[0]}</span>${f[1]}</div>`).join('') + '</div></div>';
+}
+// Perfil de confianza: puntos por bloque con su fuente y fecha; distingue «verificado» de «no se pudo verificar».
+function perfil(r) {
+  if (!r.confianza_nivel) return '';
+  const al = lista(r.confianza_alertas), sat = lista(r.sat_hallazgos), sem = lista(r.semarnat);
+  return `<div class="perfil"><h4><span class="cf ${CONF_CLS[r.confianza_nivel] || ''}"><b>${r.confianza_nivel === 'Sin información suficiente' ? '–' : esc(r.confianza)}</b></span>Confianza: ${esc(r.confianza_nivel)}` +
+    `<span class="tenue" style="font-weight:400">${esc(r.confianza_verificadas)} de 4 fuentes oficiales verificadas · calculado el ${esc(r.confianza_fecha)}</span></h4>` +
+    `<table><tr><th>Bloque</th><th>Puntos</th><th>Resultado</th><th>Fuente</th><th>Consultado</th><th>Verificado</th></tr>` +
+    lista(r.confianza_bloques).map(b => `<tr><td><b>${esc(b.b)}</b></td><td class="nowrap"><span class="barra"><i style="width:${Math.round(100 * b.p / b.m)}%"></i></span>${b.p} / ${b.m}</td><td>${esc(b.nota)}</td><td class="tenue">${esc(b.fuente)}</td><td class="tenue nowrap">${esc(b.fecha)}</td><td>${b.v ? '✓ Sí' : '<span class="tenue">No se pudo</span>'}</td></tr>`).join('') + '</table>' +
+    (al.length ? `<div class="al"><b>Alertas:</b> ${al.map(esc).join(' · ')}</div>` : '') +
+    (sat.length ? `<ul>${sat.map(h => `<li>SAT ${esc(h.lista)} — ${esc(h.situacion)} · ${esc(h.nombre_lista)} (${esc(h.rfc_lista)}) · ${esc(h.fecha)} · cruce por ${esc(h.cruce)}</li>`).join('')}</ul>` : '') +
+    (sem.length ? `<ul>${sem.map(a => `<li>SEMARNAT ${esc(a.rubro)} — autorización ${esc(a.autorizacion)}, vigencia ${esc(a.vigencia || 's/d')} · ${esc(a.empresa)} (${esc(a.municipio)}, ${esc(a.estado)})${a.residuos ? ' · ' + esc(a.residuos) : ''}</li>`).join('')}</ul>` : '') + '</div>';
 }
 // Selección compartida entre la tabla y el mapa.
 let SEL = null;
@@ -425,7 +464,7 @@ const fecha = iso => iso ? new Date(iso).toLocaleString('es-MX', {dateStyle: 'me
 function pintarKpis() {
   const n = f => EMP.filter(f).length, est = new Set(); EMP.forEach(r => lista(r.estados_busqueda).forEach(e => est.add(e)));
   const k = [[EMP.length, 'Empresas'], [est.size + ' / 32', 'Estados con empresas'], [n(r => lista(r.telefonos).length), 'Con teléfono'], [n(r => lista(r.correos).length), 'Con correo'],
-    [n(r => r.razon_social), 'Con razón social'], [n(r => r.rfc), 'Con RFC'], [n(r => r.repse_estatus === 'Registrado vigente'), 'Con REPSE vigente'], [n(r => r.estatus_mes === 'Nuevo'), 'Nuevas en la última corrida']];
+    [n(r => r.razon_social), 'Con razón social'], [n(r => r.rfc), 'Con RFC'], [n(r => r.repse_estatus === 'Registrado vigente'), 'Con REPSE vigente'], [n(r => r.confianza_nivel === 'Alta'), 'Confianza alta'], [n(r => lista(r.confianza_alertas).length), 'Con alertas'], [n(r => r.estatus_mes === 'Nuevo'), 'Nuevas en la última corrida']];
   $('#kpis').innerHTML = k.map(([v, t]) => `<div class="kpi"><b>${v}</b><span>${t}</span></div>`).join('');
   $('#sub').textContent = CORRIDA.fecha ? `Última extracción: ${fecha(CORRIDA.fecha)} · Fuentes: ${String(CORRIDA.motor || '').split(', ').map(m => MOTORES[m] || m).join(' + ')} · ${CORRIDA.consultas} consultas, ${CORRIDA.candidatos} sitios revisados` : 'Aún no se ha ejecutado ninguna extracción.';
 }

@@ -750,6 +750,24 @@ COLUMNAS = [  # (encabezado, ancho, descripción)
     ("WhatsApp", 15, "Número del enlace de WhatsApp."),
     ("Correos", 38, "Hasta 5 correos publicados."),
     ("Sitio web", 34, "Página de la empresa."),
+    ("Confianza (0-100)", 11, "Calificación por bloques: Fiscal 25, Laboral 15, Ambiental 20, Existencia 20, Reputación 20. 0 si hay causa de descarte."),
+    ("Nivel de confianza", 14, "Alta (75+), Media (55-74), Baja (menos de 55), Sin información suficiente (ninguna fuente oficial pudo verificarse) o No confiable (69-B definitivo / 69-B Bis)."),
+    ("Alertas", 45, "Hallazgos negativos: listas del SAT, REPSE vencido, autorización vencida, calificación baja."),
+    ("Fuentes verificadas (de 4)", 11, "Cuántos de los bloques Fiscal, Laboral, Ambiental y Existencia se pudieron verificar con dato oficial."),
+    ("Detalle de la calificación", 70, "Puntos por bloque y motivo."),
+    ("SAT (art. 69 / 69-B)", 30, "Resultado del cruce con los listados del SAT. «No verificable» = sin RFC ni razón social."),
+    ("SAT: cruce por", 14, "RFC (seguro) o razón social (verificar)."),
+    ("SEMARNAT", 28, "Autorización federal para manejo de residuos peligrosos."),
+    ("SEMARNAT: rubros", 36, "Rubros autorizados."),
+    ("SEMARNAT: autorizaciones", 50, "Número de autorización y vigencia."),
+    ("DENUE", 14, "Si el establecimiento se localizó en el DENUE del INEGI."),
+    ("DENUE: cruce por", 18, "Teléfono, sitio web, correo o ubicación y nombre."),
+    ("DENUE: actividad", 40, "Actividad económica (SCIAN)."),
+    ("DENUE: personal", 16, "Estrato de personal ocupado."),
+    ("DENUE: alta", 10, "Fecha de incorporación al DENUE."),
+    ("Dominio registrado", 13, "Fecha de registro del dominio web."),
+    ("Origen de la razón social", 12, "Sitio (vacío), DENUE o REPSE."),
+    ("Origen del RFC", 10, "Sitio (vacío) o REPSE."),
     ("REPSE", 20, "Resultado de la consulta al padrón público REPSE (STPS): Registrado vigente / Registro vencido / No encontrado."),
     ("Folio REPSE", 12, "Folio en el padrón."),
     ("Razón social en REPSE", 40, "Nombre con el que está registrada."),
@@ -781,6 +799,12 @@ def a_fila(i, k, r):
     return [i, r.get("nombre", ""), r.get("razon_social", ""), r.get("rfc", ""), r.get("estado_sede", ""),
             j(r.get("estados_busqueda", [])), j(r.get("estados_mencionados", [])), r.get("direccion", ""), r.get("cp", ""),
             j(r.get("telefonos", [])), rd.get("WhatsApp", ""), j(r.get("correos", [])), r.get("sitio", ""),
+            r.get("confianza", ""), r.get("confianza_nivel", ""), " | ".join(r.get("confianza_alertas", [])), r.get("confianza_verificadas", ""),
+            " | ".join("%s %s/%s: %s" % (b["b"], b["p"], b["m"], b["nota"]) for b in r.get("confianza_bloques", [])),
+            r.get("sat_estatus", ""), r.get("sat_cruce", ""), r.get("semarnat_estatus", ""), j(r.get("semarnat_rubros", [])),
+            " | ".join("%s %s (vigencia %s)" % (a["rubro"], a["autorizacion"], a["vigencia"] or "s/d") for a in r.get("semarnat", [])),
+            r.get("denue_estatus", ""), r.get("denue_coincidencia", ""), r.get("denue_actividad", ""), r.get("denue_personal", ""),
+            r.get("denue_alta", ""), r.get("dominio_creado", ""), r.get("razon_social_fuente", ""), r.get("rfc_fuente", ""),
             r.get("repse_estatus", ""), r.get("repse_folio", ""), r.get("repse_razon_social", ""),
             " / ".join(x for x in (r.get("repse_entidad", ""), r.get("repse_municipio", "")) if x), r.get("repse_aviso", ""),
             r.get("repse_vigencia", ""), r.get("repse_coincidencia", ""), " | ".join(r.get("repse_servicios", [])),
@@ -991,7 +1015,7 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
             "nombre": x.get("place_id") and g["titulo"] or r.get("nombre") or g["titulo"],
             "estados_busqueda": sorted(set(previo.get("estados_busqueda", [])) | set(g["estados"]), key=ESTADOS.index),
             "frases": g["frases"], "n_consultas": len(g["consultas"]), "fuente": ", ".join(sorted(g["motores"])),
-            "maps": x.get("maps", ""), "calificacion": x.get("calificacion", ""),
+            "maps": x.get("maps", ""), "calificacion": x.get("calificacion", ""), "resenas": x.get("resenas", ""),
             "lat": x.get("lat") or previo.get("lat") or "", "lng": x.get("lng") or previo.get("lng") or "",
         })
         if x.get("telefono"):
@@ -1020,20 +1044,29 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
             nuevo["estatus_mes"] = "Actualizado" if cambio else "Sin cambios"
             nuevo["primera_deteccion"] = previo.get("primera_deteccion", hoy)
         nuevo["ultima_verificacion"] = hoy
-        for c in CAMPOS_REPSE + ["rfc_fuente", "razon_social_fuente"]:  # la validación REPSE se conserva entre corridas
-            if c in previo:
+        for c, v in previo.items():  # validaciones y cruces se conservan entre corridas
+            if c in CAMPOS_REPSE or c.endswith("_fuente") or c.startswith(("denue_", "sat_", "semarnat", "confianza", "dominio_creado")):
+                nuevo[c] = v
+        for c in ("rfc", "razon_social"):  # dato tomado de REPSE o DENUE: no se pierde si el sitio no lo publica
+            if previo.get(c + "_fuente") and not nuevo.get(c):
                 nuevo[c] = previo[c]
-        for c in ("rfc", "razon_social"):  # dato oficial tomado de REPSE: no se pierde si el sitio no lo publica
-            if previo.get(c + "_fuente") == "REPSE" and not nuevo.get(c):
-                nuevo[c] = previo[c]
-            elif previo.get(c + "_fuente") == "REPSE" and nuevo.get(c) != previo.get(c):
+            elif previo.get(c + "_fuente") and nuevo.get(c) != previo.get(c):
                 nuevo.pop(c + "_fuente", None)
         cuenta[nuevo["estatus_mes"]] += 1
         base[k] = nuevo
 
-    # 3b. REPSE
+    # 3a. Identidad (DENUE) -> 3b. REPSE -> 3c. listas SAT, SEMARNAT, señales y calificación
+    import confianza
+    perfil = {}
+    try:
+        perfil.update(confianza.identidad(base))
+    except Exception as e:
+        perfil["denue_error"] = str(e)[:160]
+    print("DENUE: %s" % perfil)
     repse_ok, repse_fallas = repse_todas(base)
     print("REPSE: %d validadas, %d sin respuesta" % (repse_ok, repse_fallas))
+    perfil.update(confianza.perfilar(base))
+    print("Perfil: %s" % {k: v for k, v in perfil.items() if not isinstance(v, list)})
     AVISAR("Guardando resultados")
 
     with open(BASE_JSON, "w", encoding="utf-8") as f:
@@ -1042,7 +1075,7 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
     n = exportar_xlsx(base, lista_desc, bitacora, salida, hoy)
     resumen = {"fecha": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z", "motor": ", ".join(motores),
                "busqueda_reutilizada_de": de_cache or "",
-               "repse_validadas": repse_ok, "repse_sin_respuesta": repse_fallas,
+               "repse_validadas": repse_ok, "repse_sin_respuesta": repse_fallas, "perfil": perfil,
                "consultas": len(bitacora), "resultados_busqueda": len(cands), "candidatos": len(grupos),
                "empresas": n, "descartados": len(lista_desc), "por_estatus": dict(cuenta),
                "estados_con_resultados": sorted({b[0] for b in bitacora if b[4]}, key=ESTADOS.index),
