@@ -34,6 +34,7 @@ import sys
 import time
 import unicodedata
 from collections import Counter, defaultdict
+from difflib import SequenceMatcher
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urljoin, urlparse
 
@@ -556,6 +557,182 @@ def enriquecer(dominio, url_inicio):
     return reg
 
 
+# ───────────────────────── 3b. REPSE ─────────────────────────
+# Padrón Público de Contratistas de Servicios Especializados (STPS): https://repse.stps.gob.mx
+# Se usa la misma consulta pública del portal («Consultar Padrón»): buscar por nombre / RFC y abrir el registro.
+REPSE_URL = "https://repse.stps.gob.mx/"
+REPSE_DIAS = float(os.environ.get("REPSE_DIAS", "28"))  # cada empresa se vuelve a validar pasado este plazo
+RE_SUFIJO_LEGAL = re.compile(r"\b(S\s?A\s?P\s?I|S\s?A\s?B|S\s?A\s?S|S\s?A|S\s?C|A\s?C|S\s?P\s?R|S)?\s*(DE\s+)?(R\s?L|C\s?V)(\s+DE\s+C\s?V)?\s*$|\bS\s?A\s*$|\bS\s?C\s*$|\bA\s?C\s*$")
+GENERICAS = {"RECICLAJE", "RECICLADORA", "RECICLADOS", "RESIDUOS", "RECOLECCION", "AMBIENTAL", "SERVICIOS", "GRUPO",
+             "MEXICO", "ECOLOGIA", "RECICLA", "CHATARRA", "METALES", "PLASTICOS", "INDUSTRIAL", "INDUSTRIALES"}
+
+
+def nucleo(nombre):
+    """Nombre en mayúsculas, sin acentos, puntuación ni la terminación legal (SA DE CV, S DE RL DE CV…)."""
+    n = re.sub(r"[^A-Z0-9Ñ& ]+", " ", sin_acentos(nombre or "").upper().replace(".", "").replace(",", " "))
+    n = re.sub(r"\s+", " ", n).strip()
+    for _ in range(2):
+        n = RE_SUFIJO_LEGAL.sub("", n).strip()
+    return n
+
+
+class Repse:
+    def __init__(self):
+        self.s = requests.Session()
+        self.s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; DirectorioRME-bot/1.0; consulta del padron publico REPSE)",
+                               "Accept-Language": "es-MX,es;q=0.9"})
+        self.token = ""
+        self.memo = {}
+
+    def _token(self):
+        r = self.s.get(REPSE_URL, timeout=40)
+        m = re.search(r'name="csrf-token" content="([^"]+)"', r.text) or re.search(r'name="_token"[^>]*value="([^"]+)"', r.text)
+        self.token = m.group(1) if m else ""
+
+    def buscar(self, termino):
+        termino = termino.strip()
+        if termino in self.memo:
+            return self.memo[termino]
+        for intento in range(3):
+            try:
+                r = self.s.get(REPSE_URL + "busca_razon_social", params={"term": termino, "_type": "query", "q": termino},
+                               headers={"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"}, timeout=40)
+                if r.status_code == 200:
+                    self.memo[termino] = r.json().get("results", [])
+                    return self.memo[termino]
+            except Exception:
+                pass
+            time.sleep(2 + 3 * intento)
+        raise RuntimeError("REPSE no respondió a la búsqueda")
+
+    def registro(self, id_):
+        for intento in range(3):
+            if not self.token:
+                self._token()
+            try:
+                r = self.s.post(REPSE_URL + "buscar-padron", data={"razon_social": str(id_)}, timeout=40,
+                                headers={"X-CSRF-TOKEN": self.token, "X-Requested-With": "XMLHttpRequest", "Accept": "application/json"})
+                if r.status_code == 200:
+                    return r.json()
+                if r.status_code == 419:  # sesión vencida
+                    self.token = ""
+            except Exception:
+                pass
+            time.sleep(2 + 3 * intento)
+        raise RuntimeError("REPSE no respondió al abrir el registro")
+
+
+def repse_validar(cli, emp, dominio):
+    """Busca la empresa en el padrón y devuelve los campos repse_* (y RFC / razón social oficiales si la coincidencia es alta)."""
+    hoy = dt.date.today()
+    rs, nom = nucleo(emp.get("razon_social")), nucleo(emp.get("nombre"))
+    etiqueta = re.sub(r"[^A-Z0-9]", "", (dominio or "").split(".")[0].upper())
+    terminos = []
+    if emp.get("rfc") and emp.get("rfc_fuente") != "REPSE":
+        terminos.append(("rfc", emp["rfc"]))
+    if len(rs) >= 5:
+        terminos.append(("razon", rs))
+    if len(nom) >= 5 and nom != rs and nom not in GENERICAS:
+        terminos.append(("nombre", nom))
+    if len(etiqueta) >= 6 and etiqueta not in GENERICAS and etiqueta not in (rs.replace(" ", ""), nom.replace(" ", "")):
+        terminos.append(("dominio", etiqueta))
+    if not terminos:
+        return {"repse_estatus": "Sin datos para buscar", "repse_verificado": hoy.isoformat()}
+    mejor = None  # (puntaje, confianza, candidato)
+    for tipo, termino in terminos:
+        cands = cli.buscar(termino)
+        time.sleep(0.25)
+        for c in cands[:25]:
+            nc = nucleo(c.get("text"))
+            if tipo == "rfc":
+                punt, conf = (100, "Alta (RFC)") if len(cands) == 1 else (0, "")
+            elif nc and nc in (rs, nom):
+                punt, conf = 95, "Alta (%s)" % ("razón social" if nc == rs else "nombre")
+            elif tipo == "razon" and len(cands) == 1 and SequenceMatcher(None, nc, rs).ratio() >= 0.85:
+                punt, conf = 85, "Alta (razón social similar)"
+            elif tipo == "nombre" and (len(nom.split()) >= 2 or (len(nom) >= 8 and len(cands) <= 3)) and re.search(r"\b%s\b" % re.escape(nom), nc):
+                punt, conf = 60 + 20 * SequenceMatcher(None, nc, nom).ratio(), "Media (contiene el nombre)"
+            elif tipo == "dominio" and etiqueta in nc.replace(" ", "") and len(cands) <= 3:
+                punt, conf = 50 + 20 * SequenceMatcher(None, nc.replace(" ", ""), etiqueta).ratio(), "Media (coincide con el dominio)"
+            else:
+                punt, conf = 0, ""
+            if punt and (mejor is None or punt > mejor[0]):
+                mejor = (punt, conf, c)
+        if mejor and mejor[0] >= 85:
+            break
+    if not mejor:
+        return {"repse_estatus": "No encontrado", "repse_verificado": hoy.isoformat()}
+    d = cli.registro(mejor[2]["id"])
+    time.sleep(0.25)
+    dat = d.get("data") or {}
+    if not dat:
+        return {"repse_estatus": "No encontrado", "repse_verificado": hoy.isoformat()}
+    vence = (dat.get("fecha_vencimiento_registro") or "")[:10]
+    alta = (dat.get("fecha_registro") or "")[:10]
+    activo = str(d.get("registro")) == "1"
+    vigente = bool(vence) and vence >= hoy.isoformat()
+    if emp.get("estado_sede") and dat.get("entidad"):
+        mismo = sin_acentos(emp["estado_sede"]).lower() in sin_acentos(dat["entidad"]).lower() or \
+            sin_acentos(dat["entidad"]).lower() in sin_acentos(emp["estado_sede"]).lower()
+    else:
+        mismo = None
+    conf = mejor[1]
+    if conf.startswith("Media") and mismo is False:
+        conf = "Baja (mismo nombre, otro estado)"
+    sal = {"repse_estatus": "Coincidencia dudosa" if conf.startswith("Baja") else
+           ("Registrado vigente" if vigente else "Registro vencido") if activo else "Sin registro activo",
+           "repse_folio": dat.get("folio", ""), "repse_razon_social": (dat.get("razon_social") or "").upper(),
+           "repse_rfc": dat.get("rfc", ""), "repse_entidad": dat.get("entidad", ""), "repse_municipio": dat.get("municipio", ""),
+           "repse_aviso": "%s-%s/%s" % (dat.get("abreviatura", ""), dat.get("num_emi", ""), alta[:4]) if dat.get("num_emi") else "",
+           "repse_fecha_registro": alta, "repse_vigencia": vence, "repse_coincidencia": conf,
+           "repse_servicios": [a.get("descripcion", "").strip() for a in d.get("actividades", []) if a.get("descripcion")][:8],
+           "repse_verificado": hoy.isoformat()}
+    if conf.startswith("Alta"):  # dato oficial: completa RFC y razón social si faltaban
+        if not emp.get("rfc") and sal["repse_rfc"]:
+            sal["rfc"], sal["rfc_fuente"] = sal["repse_rfc"], "REPSE"
+        if not emp.get("razon_social") and sal["repse_razon_social"]:
+            sal["razon_social"], sal["razon_social_fuente"] = sal["repse_razon_social"], "REPSE"
+    return sal
+
+
+CAMPOS_REPSE = ["repse_estatus", "repse_folio", "repse_razon_social", "repse_rfc", "repse_entidad", "repse_municipio",
+                "repse_aviso", "repse_fecha_registro", "repse_vigencia", "repse_coincidencia", "repse_servicios", "repse_verificado"]
+
+
+def repse_todas(base, hilos=3):
+    """Valida en REPSE las empresas del directorio que no se han validado en los últimos REPSE_DIAS días."""
+    limite = (dt.date.today() - dt.timedelta(days=REPSE_DIAS)).isoformat()
+    pend = [k for k, r in base.items() if r.get("es_empresa") and (r.get("repse_verificado") or "") < limite]
+    if not pend:
+        return 0, 0
+    cli = Repse()
+    try:
+        cli._token()
+    except Exception as e:
+        print("REPSE no disponible: %s" % str(e)[:120])
+        return 0, len(pend)
+    hechas, fallas = 0, 0
+    AVISAR("Validando en REPSE", 0, len(pend))
+
+    def una(k):
+        return k, repse_validar(cli, base[k], "" if k.startswith("place:") else k)
+
+    with ThreadPoolExecutor(max_workers=hilos) as ex:
+        futuros = [ex.submit(una, k) for k in pend]
+        for fu in as_completed(futuros):
+            hechas += 1
+            try:
+                k, datos = fu.result()
+                for c in CAMPOS_REPSE:  # limpia el resultado anterior
+                    base[k].pop(c, None)
+                base[k].update(datos)
+            except Exception:
+                fallas += 1  # se reintenta en la siguiente corrida
+            if hechas % 10 == 0 or hechas == len(pend):
+                AVISAR("Validando en REPSE", hechas, len(pend))
+    return hechas - fallas, fallas
+
+
 # ───────────────────────── 4. BASE + EXCEL ─────────────────────────
 CAMPOS_COMPARAR = ["nombre", "razon_social", "rfc", "telefonos", "correos", "direccion", "servicios", "residuos"]
 
@@ -563,7 +740,7 @@ COLUMNAS = [  # (encabezado, ancho, descripción)
     ("ID", 8, "Consecutivo del directorio."),
     ("Nombre comercial", 34, "Nombre del sitio (og:site_name / título) o nombre en Google Maps."),
     ("Razón social", 40, "Denominación legal detectada (S.A. de C.V., S. de R.L., etc.), normalmente en el aviso de privacidad."),
-    ("RFC", 16, "RFC publicado en el sitio (solo si aparece junto a la sigla RFC)."),
+    ("RFC", 16, "RFC publicado en el sitio, o el del padrón REPSE cuando la coincidencia es alta."),
     ("Estado sede", 20, "Estado detectado en la dirección publicada."),
     ("Estados donde aparece (búsqueda)", 34, "Estados cuyas consultas en Google devolvieron a esta empresa."),
     ("Cobertura mencionada", 34, "Estados que el sitio menciona en su texto."),
@@ -573,6 +750,14 @@ COLUMNAS = [  # (encabezado, ancho, descripción)
     ("WhatsApp", 15, "Número del enlace de WhatsApp."),
     ("Correos", 38, "Hasta 5 correos publicados."),
     ("Sitio web", 34, "Página de la empresa."),
+    ("REPSE", 20, "Resultado de la consulta al padrón público REPSE (STPS): Registrado vigente / Registro vencido / No encontrado."),
+    ("Folio REPSE", 12, "Folio en el padrón."),
+    ("Razón social en REPSE", 40, "Nombre con el que está registrada."),
+    ("Entidad / municipio REPSE", 30, "Domicilio registrado en el padrón."),
+    ("Aviso de registro", 18, "Número de aviso de registro."),
+    ("Vigencia REPSE", 13, "Fecha de vencimiento del registro."),
+    ("Coincidencia REPSE", 28, "Qué tan seguro es que el registro corresponde a esta empresa: Alta (RFC o razón social), Media (nombre o dominio), Baja."),
+    ("Servicios registrados en REPSE", 60, "Servicios especializados declarados en el padrón."),
     ("Servicios", 48, "Servicios detectados por palabras clave."),
     ("Tipos de residuos", 48, "Tipos de residuos / materiales detectados."),
     ("Autorizaciones / certificaciones", 30, "Menciones de SEMARNAT, SCT, autoridad estatal, ISO, etc."),
@@ -596,6 +781,9 @@ def a_fila(i, k, r):
     return [i, r.get("nombre", ""), r.get("razon_social", ""), r.get("rfc", ""), r.get("estado_sede", ""),
             j(r.get("estados_busqueda", [])), j(r.get("estados_mencionados", [])), r.get("direccion", ""), r.get("cp", ""),
             j(r.get("telefonos", [])), rd.get("WhatsApp", ""), j(r.get("correos", [])), r.get("sitio", ""),
+            r.get("repse_estatus", ""), r.get("repse_folio", ""), r.get("repse_razon_social", ""),
+            " / ".join(x for x in (r.get("repse_entidad", ""), r.get("repse_municipio", "")) if x), r.get("repse_aviso", ""),
+            r.get("repse_vigencia", ""), r.get("repse_coincidencia", ""), " | ".join(r.get("repse_servicios", [])),
             j(r.get("servicios", [])), j(r.get("residuos", [])), j(r.get("autorizaciones", [])), r.get("num_autorizacion", ""),
             r.get("descripcion", ""), rd.get("Facebook", ""), rd.get("LinkedIn", ""), rd.get("Instagram", ""),
             r.get("maps", ""), r.get("calificacion", ""), r.get("relevancia", ""), r.get("n_consultas", ""),
@@ -832,8 +1020,21 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
             nuevo["estatus_mes"] = "Actualizado" if cambio else "Sin cambios"
             nuevo["primera_deteccion"] = previo.get("primera_deteccion", hoy)
         nuevo["ultima_verificacion"] = hoy
+        for c in CAMPOS_REPSE + ["rfc_fuente", "razon_social_fuente"]:  # la validación REPSE se conserva entre corridas
+            if c in previo:
+                nuevo[c] = previo[c]
+        for c in ("rfc", "razon_social"):  # dato oficial tomado de REPSE: no se pierde si el sitio no lo publica
+            if previo.get(c + "_fuente") == "REPSE" and not nuevo.get(c):
+                nuevo[c] = previo[c]
+            elif previo.get(c + "_fuente") == "REPSE" and nuevo.get(c) != previo.get(c):
+                nuevo.pop(c + "_fuente", None)
         cuenta[nuevo["estatus_mes"]] += 1
         base[k] = nuevo
+
+    # 3b. REPSE
+    repse_ok, repse_fallas = repse_todas(base)
+    print("REPSE: %d validadas, %d sin respuesta" % (repse_ok, repse_fallas))
+    AVISAR("Guardando resultados")
 
     with open(BASE_JSON, "w", encoding="utf-8") as f:
         json.dump(base, f, ensure_ascii=False, indent=1)
@@ -841,6 +1042,7 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
     n = exportar_xlsx(base, lista_desc, bitacora, salida, hoy)
     resumen = {"fecha": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z", "motor": ", ".join(motores),
                "busqueda_reutilizada_de": de_cache or "",
+               "repse_validadas": repse_ok, "repse_sin_respuesta": repse_fallas,
                "consultas": len(bitacora), "resultados_busqueda": len(cands), "candidatos": len(grupos),
                "empresas": n, "descartados": len(lista_desc), "por_estatus": dict(cuenta),
                "estados_con_resultados": sorted({b[0] for b in bitacora if b[4]}, key=ESTADOS.index),

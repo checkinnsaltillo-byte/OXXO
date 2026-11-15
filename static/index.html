@@ -55,7 +55,7 @@ th.ord{cursor:pointer}th.ord:hover{color:var(--verde)}
 .tag{display:inline-block;background:var(--suave);color:var(--verde);border-radius:5px;padding:1px 7px;margin:1px 3px 1px 0;font-size:12px;white-space:nowrap}
 .tag.r{background:#f3efe4;color:#6a5417}
 .est{font-size:12px;font-weight:600;border-radius:20px;padding:2px 9px;white-space:nowrap}
-.est.Nuevo{background:#dff3e3;color:#1c6b33}.est.Actualizado{background:#e3ecfb;color:#234f9c}.est.Sin{background:#eceeed;color:#59625f}.est.resp{background:#fbe6e2;color:#9b3023}
+.est.Nuevo{background:#dff3e3;color:#1c6b33}.est.Actualizado{background:#e3ecfb;color:#234f9c}.est.Sin{background:#eceeed;color:#59625f}.est.resp{background:#fbe6e2;color:#9b3023}.est.duda{background:#fdf1d6;color:#8a5a00}
 .tenue{color:var(--gris)}.nowrap{white-space:nowrap}
 a{color:#17605a}
 .pie{display:flex;gap:10px;align-items:center;justify-content:flex-end;padding:10px 2px;color:var(--gris);font-size:13px}
@@ -154,10 +154,12 @@ const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLow
 const lista = v => Array.isArray(v) ? v : (v ? [v] : []);
 const urlOk = u => /^https?:\/\//i.test(u || '') ? u : '';
 
+const REPSE_CLS = {'Registrado vigente': 'Nuevo', 'Registro vencido': 'resp', 'Sin registro activo': 'resp', 'Coincidencia dudosa': 'duda'};
+const REPSE_ORD = {'Registrado vigente': 1, 'Registro vencido': 2, 'Sin registro activo': 3, 'Coincidencia dudosa': 4, 'No encontrado': 5};
 const MOTORES = {places: 'Google Maps', gemini: 'Google web (Gemini)', cse: 'Google web (API)', importar: 'Google web (captura)'};
 let EMP = [], CORRIDA = {}, VISTA = [];
-const F = {q: '', estados: new Set(), sede: new Set(), servicios: new Set(), residuos: new Set(), fuente: new Set(), estatus: new Set(), flags: new Set()};
-const FILTROS = [['estados', 'Estado (búsqueda)'], ['sede', 'Estado sede'], ['servicios', 'Servicio'], ['residuos', 'Tipo de residuo'], ['fuente', 'Fuente'], ['estatus', 'Estatus']];
+const F = {q: '', estados: new Set(), sede: new Set(), servicios: new Set(), residuos: new Set(), repse: new Set(), fuente: new Set(), estatus: new Set(), flags: new Set()};
+const FILTROS = [['estados', 'Estado (búsqueda)'], ['sede', 'Estado sede'], ['servicios', 'Servicio'], ['residuos', 'Tipo de residuo'], ['repse', 'REPSE'], ['fuente', 'Fuente'], ['estatus', 'Estatus']];
 const ORD = {k: 'relevancia', dir: -1};
 let PAGINA = 0; const POR_PAG = 50;
 
@@ -168,14 +170,16 @@ const DIMS = {
   residuos: {t: 'Tipo de residuo', g: r => lista(r.residuos)},
   aut: {t: 'Autorización / certificación', g: r => lista(r.autorizaciones).length ? lista(r.autorizaciones) : ['(ninguna)']},
   estatus: {t: 'Estatus del mes', g: r => [r.estatus_mes || '(sin estatus)']},
+  repse: {t: 'REPSE', g: r => [r.repse_estatus || 'Sin validar']},
   fuente: {t: 'Fuente', g: r => String(r.fuente || '').split(', ').filter(Boolean).map(m => MOTORES[m] || m)},
 };
 const FLAGS = {tel: ['Con teléfono', r => lista(r.telefonos).length], mail: ['Con correo', r => lista(r.correos).length],
-  rs: ['Con razón social', r => r.razon_social], rfc: ['Con RFC', r => r.rfc], dir: ['Con dirección', r => r.direccion]};
+  rs: ['Con razón social', r => r.razon_social], rfc: ['Con RFC', r => r.rfc], repse: ['Con REPSE vigente', r => r.repse_estatus === 'Registrado vigente'], dir: ['Con dirección', r => r.direccion]};
 
 const COLS = [
   {k: 'nombre', t: 'Empresa', h: r => `<b>${esc(r.nombre)}</b>${r.razon_social ? `<div class="tenue">${esc(r.razon_social)}</div>` : ''}`, o: r => norm(r.nombre)},
   {k: 'rfc', t: 'RFC', h: r => esc(r.rfc), o: r => r.rfc || '~'},
+  {k: 'repse_estatus', t: 'REPSE', h: r => r.repse_estatus ? `<span class="est rp ${REPSE_CLS[r.repse_estatus] || 'Sin'}">${esc(r.repse_estatus)}</span>${r.repse_folio ? `<div class="tenue nowrap">Folio ${esc(r.repse_folio)}</div>` : ''}` : '', o: r => (REPSE_ORD[r.repse_estatus] || 9) + String(r.repse_vigencia || '')},
   {k: 'estados_busqueda', t: 'Estado', h: r => esc(lista(r.estados_busqueda).join(', ')) + (r.estado_sede ? `<div class="tenue">Sede: ${esc(r.estado_sede)}</div>` : ''), o: r => norm(lista(r.estados_busqueda)[0] || '~')},
   {k: 'telefonos', t: 'Teléfonos', h: r => lista(r.telefonos).slice(0, 3).map(t => `<div class="nowrap">${esc(t)}</div>`).join(''), o: r => lista(r.telefonos)[0] || '~'},
   {k: 'correos', t: 'Correos', h: r => lista(r.correos).slice(0, 2).map(c => `<div>${esc(c)}</div>`).join(''), o: r => lista(r.correos)[0] || '~'},
@@ -274,6 +278,11 @@ function detalle(r) {
     ['Facebook', en(rd.Facebook)], ['LinkedIn', en(rd.LinkedIn)], ['Instagram', en(rd.Instagram)], ['Google Maps', en(r.maps)],
     ['Calificación en Google', esc(r.calificacion)], ['Relevancia', esc(r.relevancia)], ['Estatus del mes', esc(r.estatus_mes)],
     ['Primera detección', esc(r.primera_deteccion)], ['Última verificación', esc(r.ultima_verificacion)], ['Fuente', esc(DIMS.fuente.g(r).join(' + '))],
+    ['REPSE', r.repse_estatus ? `<span class="est ${REPSE_CLS[r.repse_estatus] || 'Sin'}">${esc(r.repse_estatus)}</span>` : ''], ['Folio REPSE', esc(r.repse_folio)],
+    ['Razón social en REPSE', esc(r.repse_razon_social)], ['RFC en REPSE', esc(r.repse_rfc)],
+    ['Entidad / municipio REPSE', esc([r.repse_entidad, r.repse_municipio].filter(Boolean).join(' / '))], ['Aviso de registro', esc(r.repse_aviso)],
+    ['Vigencia REPSE', esc(r.repse_vigencia)], ['Coincidencia REPSE', esc(r.repse_coincidencia)], ['REPSE consultado el', esc(r.repse_verificado)],
+    ['Servicios registrados en REPSE', lista(r.repse_servicios).map(s => esc(s)).join('<br>'), 1],
     ['Servicios', lista(r.servicios).map(s => `<span class="tag">${esc(s)}</span>`).join(''), 1],
     ['Tipos de residuos', lista(r.residuos).map(s => `<span class="tag r">${esc(s)}</span>`).join(''), 1],
     ['Descripción', esc(r.descripcion), 1], ['Frases de búsqueda', esc(lista(r.frases).join(' · ')), 1]];
@@ -416,7 +425,7 @@ const fecha = iso => iso ? new Date(iso).toLocaleString('es-MX', {dateStyle: 'me
 function pintarKpis() {
   const n = f => EMP.filter(f).length, est = new Set(); EMP.forEach(r => lista(r.estados_busqueda).forEach(e => est.add(e)));
   const k = [[EMP.length, 'Empresas'], [est.size + ' / 32', 'Estados con empresas'], [n(r => lista(r.telefonos).length), 'Con teléfono'], [n(r => lista(r.correos).length), 'Con correo'],
-    [n(r => r.razon_social), 'Con razón social'], [n(r => r.rfc), 'Con RFC'], [n(r => r.estatus_mes === 'Nuevo'), 'Nuevas en la última corrida']];
+    [n(r => r.razon_social), 'Con razón social'], [n(r => r.rfc), 'Con RFC'], [n(r => r.repse_estatus === 'Registrado vigente'), 'Con REPSE vigente'], [n(r => r.estatus_mes === 'Nuevo'), 'Nuevas en la última corrida']];
   $('#kpis').innerHTML = k.map(([v, t]) => `<div class="kpi"><b>${v}</b><span>${t}</span></div>`).join('');
   $('#sub').textContent = CORRIDA.fecha ? `Última extracción: ${fecha(CORRIDA.fecha)} · Fuentes: ${String(CORRIDA.motor || '').split(', ').map(m => MOTORES[m] || m).join(' + ')} · ${CORRIDA.consultas} consultas, ${CORRIDA.candidatos} sitios revisados` : 'Aún no se ha ejecutado ninguna extracción.';
 }
