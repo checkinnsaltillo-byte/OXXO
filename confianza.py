@@ -790,6 +790,7 @@ def marcar_fuentes(k, r):
     if r.get("transparencia"):
         fs.append("Transparencia")
     r["fuentes"] = fs
+    r["estados"] = s.estado_principal(dict(r, origen="SEMARNAT" if k.startswith("semarnat:") else r.get("origen")))
     r["origen"] = "DENUE" if k.startswith("denue:") else "SEMARNAT" if k.startswith("semarnat:") else \
         "Transparencia" if k.startswith("transp:") else \
         "Google Places" if "Google Places" in motores else "Buscador web"

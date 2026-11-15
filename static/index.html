@@ -192,7 +192,7 @@ const ORD = {k: 'confianza', dir: -1};
 let PAGINA = 0; const POR_PAG = 50;
 
 const DIMS = {
-  estados: {t: 'Estado', g: r => r.estado_sede ? [r.estado_sede] : lista(r.estados_busqueda)},
+  estados: {t: 'Estado', g: r => lista(r.estados).length ? lista(r.estados) : (r.estado_sede ? [r.estado_sede] : lista(r.estados_busqueda))},
   busq: {t: 'Apareció en búsquedas de', g: r => lista(r.estados_busqueda).length ? lista(r.estados_busqueda) : ['(ninguna)']},
   servicios: {t: 'Servicio', g: r => lista(r.servicios)},
   residuos: {t: 'Tipo de residuo', g: r => lista(r.residuos)},
@@ -218,7 +218,7 @@ const COLS = [
   {k: 'fuentes', t: 'Fuente', h: r => lista(r.fuentes).map(f => `<span class="tag fu ${FU_CLS[f] || ''}">${esc(f)}</span>`).join(''), o: r => lista(r.fuentes).join(',') || '~'},
   {k: 'rfc', t: 'RFC', h: r => esc(r.rfc), o: r => r.rfc || '~'},
   {k: 'repse_estatus', t: 'REPSE', h: r => r.repse_estatus ? `<span class="est rp ${REPSE_CLS[r.repse_estatus] || 'Sin'}">${esc(r.repse_estatus)}</span>${r.repse_folio ? `<div class="tenue nowrap">Folio ${esc(r.repse_folio)}</div>` : ''}` : '', o: r => (REPSE_ORD[r.repse_estatus] || 9) + String(r.repse_vigencia || '')},
-  {k: 'estados_busqueda', t: 'Estado', h: r => esc(DIMS.estados.g(r).join(', ')) + (r.estado_sede ? '' : (lista(r.estados_busqueda).length ? '<div class="tenue">por búsqueda, sin ubicación</div>' : '')), o: r => norm(DIMS.estados.g(r)[0] || '~')},
+  {k: 'estados_busqueda', t: 'Estado', h: r => { const es = DIMS.estados.g(r), ub = lista(r.estados).length || r.estado_sede; return (es.length > 3 ? `<span title="${esc(es.join(', '))}">${esc(es.slice(0, 2).join(', '))} y ${es.length - 2} más</span>` : esc(es.join(', '))) + (r.suc ? `<div class="tenue">${r.suc.length} sucursales</div>` : '') + (!ub && es.length ? '<div class="tenue">por búsqueda, sin ubicación</div>' : ''); }, o: r => norm(DIMS.estados.g(r)[0] || '~')},
   {k: 'telefonos', t: 'Teléfonos', h: r => lista(r.telefonos).slice(0, 3).map(t => `<div class="nowrap">${esc(t)}</div>`).join(''), o: r => lista(r.telefonos)[0] || '~'},
   {k: 'correos', t: 'Correos', h: r => lista(r.correos).slice(0, 2).map(c => `<div>${esc(c)}</div>`).join(''), o: r => lista(r.correos)[0] || '~'},
   {k: 'sitio', t: 'Sitio web', h: r => urlOk(r.sitio) ? `<a href="${esc(r.sitio)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(r.sitio.replace(/^https?:\/\//, ''))}</a>` : '', o: r => r.sitio || '~'},
@@ -316,7 +316,7 @@ $('#ant').onclick = () => { PAGINA--; pintarTabla(); }; $('#sig').onclick = () =
 // Detalle del registro: se despliega debajo del renglón seleccionado.
 function detalle(r) {
   const rd = r.redes || {}, en = u => urlOk(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\/(www\.)?/, '').slice(0, 60))}</a>` : esc(u);
-  const filas = [['Razón social', esc(r.razon_social)], ['RFC', esc(r.rfc)], ['Estado (ubicación)', esc(r.estado_sede)],
+  const filas = [['Razón social', esc(r.razon_social)], ['RFC', esc(r.rfc)], ['Estados (ubicación)', esc(lista(r.estados).join(', ') || r.estado_sede)],
     ['Dirección', esc(r.direccion)], ['C.P.', esc(r.cp)], ['Teléfonos', esc(lista(r.telefonos).join(' · '))], ['WhatsApp', esc(rd.WhatsApp)],
     ['Correos', lista(r.correos).map(c => `<a href="mailto:${esc(c)}">${esc(c)}</a>`).join('<br>')], ['Sitio web', en(r.sitio)],
     ['Aparece en búsquedas de', esc(lista(r.estados_busqueda).join(', '))], ['Cobertura mencionada', esc(lista(r.estados_mencionados).join(', '))],
@@ -333,6 +333,7 @@ function detalle(r) {
     ['Entidad / municipio REPSE', esc([r.repse_entidad, r.repse_municipio].filter(Boolean).join(' / '))], ['Aviso de registro', esc(r.repse_aviso)],
     ['Vigencia REPSE', esc(r.repse_vigencia)], ['Coincidencia REPSE', esc(r.repse_coincidencia)], ['REPSE consultado el', esc(r.repse_verificado)],
     ['Servicios registrados en REPSE', lista(r.repse_servicios).map(s => esc(s)).join('<br>'), 1],
+    ['Sucursales (' + lista(r.sucursales).length + ')', lista(r.sucursales).length > 1 ? lista(r.sucursales).map(s => `${esc(s.nombre)} — ${esc(s.direccion)}${s.telefono ? ' · ☎ ' + esc(s.telefono) : ''}${urlOk(s.maps) ? ` · <a href="${esc(s.maps)}" target="_blank" rel="noopener">mapa</a>` : ''}`).join('<br>') : '', 1],
     ['Servicios', lista(r.servicios).map(s => `<span class="tag">${esc(s)}</span>`).join(''), 1],
     ['Tipos de residuos', lista(r.residuos).map(s => `<span class="tag r">${esc(s)}</span>`).join(''), 1],
     ['Descripción', esc(r.descripcion), 1], ['Frases de búsqueda', esc(lista(r.frases).join(' · ')), 1]];
@@ -408,6 +409,7 @@ function mapaColocar() { const h = document.querySelector('header').getBoundingC
 function mapaEnfocar(r) {
   const map = MAPA.map; if (!map) return;
   if (!r || !r.lat || !r.lng) { map.closePopup(); $('#mapaCuenta').textContent = r ? `«${r.nombre}» no tiene ubicación en el mapa` : ''; return mapaMarcadores(); }
+  if (r.suc && r.suc.length > 1 && !r._p) { map.closePopup(); map.fitBounds(r.suc.map(s => [s[0], s[1]]), {padding: [60, 60], maxZoom: 14}); return mapaMarcadores(); }  // empresa con varias sucursales: se encuadran todas
   map.setView([r.lat, r.lng], Math.max(map.getZoom(), 15), {animate: true});
   mapaMarcadores();
   L.popup({offset: [0, -26], maxWidth: 300, autoPan: false}).setLatLng([r.lat, r.lng]).setContent(mapaTarjeta(r)).openOn(map);
@@ -431,10 +433,12 @@ function mapaAlternar(abrir, enfocar) {
   });
 }
 function mapaPintar(encuadrar) {
-  MAPA.pts = VISTA.filter(r => r.lat && r.lng);
-  $('#mapaCuenta').textContent = `${MAPA.pts.length} de ${VISTA.length} empresas con ubicación`;
+  // un pin por sucursal: las empresas con varias fichas de Google Places aportan un punto por cada una
+  MAPA.pts = VISTA.flatMap(r => (r.suc && r.suc.length > 1) ? r.suc.map(s => Object.assign(Object.create(r), {_p: true, lat: s[0], lng: s[1], direccion: s[2], nombre: s[3] || r.nombre, telefonos: s[4] ? [s[4]] : r.telefonos, maps: s[5]})) : (r.lat && r.lng ? [r] : []));
+  const conUb = VISTA.filter(r => (r.lat && r.lng) || r.suc).length;
+  $('#mapaCuenta').textContent = `${MAPA.pts.length.toLocaleString('es-MX')} puntos · ${conUb.toLocaleString('es-MX')} de ${VISTA.length.toLocaleString('es-MX')} empresas con ubicación`;
   MAPA.map.closePopup();
-  const elegido = SEL && MAPA.pts.find(r => r.clave === SEL);
+  const elegido = SEL && VISTA.find(r => r.clave === SEL && ((r.lat && r.lng) || r.suc));
   if (elegido) return mapaEnfocar(elegido);
   if (encuadrar && MAPA.pts.length) MAPA.map.fitBounds(MAPA.pts.map(r => [r.lat, r.lng]), {padding: [40, 40], maxZoom: 14});
   mapaMarcadores();

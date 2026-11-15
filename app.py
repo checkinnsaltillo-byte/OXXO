@@ -71,7 +71,7 @@ def inicio():
 
 
 # Campos que viajan en la lista (tabla, filtros, mapa). El resto se pide por empresa al abrir su detalle.
-LISTA = ("nombre", "razon_social", "rfc", "estados_busqueda", "estado_sede", "telefonos", "correos", "sitio", "servicios",
+LISTA = ("nombre", "razon_social", "rfc", "estados", "estados_busqueda", "estado_sede", "telefonos", "correos", "sitio", "servicios",
          "residuos", "direccion", "relevancia", "estatus_mes", "ultima_verificacion", "lat", "lng", "maps",
          "repse_estatus", "repse_folio", "repse_vigencia", "confianza", "confianza_nivel", "confianza_alertas",
          "sat_estatus", "semarnat_estatus", "semarnat_rubros", "transparencia_estatus", "denue_estatus", "denue_personal", "fuentes", "origen")
@@ -102,6 +102,9 @@ def directorio():
                         "Google Places" if "Google Places" in mot else "Buscador web"
                 f = {c: r[c] for c in LISTA if r.get(c) not in (None, "", [], {})}
                 f["clave"] = k
+                sucs = [x for x in r.get("sucursales") or [] if x.get("lat") and x.get("lng")]
+                if len(sucs) > 1:  # un pin por sucursal: [lat, lng, dirección, nombre, teléfono, enlace a Maps]
+                    f["suc"] = [[x["lat"], x["lng"], x.get("direccion", ""), x.get("nombre", ""), x.get("telefono", ""), x.get("maps", "")] for x in sucs]
                 filas.append(f)
             cuerpo = json.dumps({"empresas": filas, "corrida": corrida}, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             _memo.update({"gen": gen, "base": base, "lista": cuerpo, "lista_gz": gzip.compress(cuerpo, 6)})

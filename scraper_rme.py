@@ -220,7 +220,13 @@ def estado_de_direccion(direccion):
 
 
 def estado_principal(r):
-    """Estado del registro para filtros y resúmenes: donde está ubicado; si no se sabe, donde apareció en búsquedas."""
+    """Estados del registro para filtros y resúmenes: donde tiene sucursales o instalaciones ubicadas.
+    Solo si no hay ninguna ubicación se usan los estados de las búsquedas que lo encontraron."""
+    sucs = [x.get("estado") for x in r.get("sucursales") or [] if x.get("estado")]
+    if sucs:
+        return sorted(set(sucs), key=lambda e: ESTADOS.index(e) if e in ESTADOS else 99)
+    if r.get("origen") == "SEMARNAT" and r.get("estados_busqueda"):
+        return list(r["estados_busqueda"])  # estados donde tiene instalaciones autorizadas
     return [r["estado_sede"]] if r.get("estado_sede") else list(r.get("estados_busqueda") or [])
 
 
@@ -782,7 +788,9 @@ COLUMNAS = [  # (encabezado, ancho, descripción)
     ("Nombre comercial", 34, "Nombre del sitio (og:site_name / título) o nombre en Google Maps."),
     ("Razón social", 40, "Denominación legal detectada (S.A. de C.V., S. de R.L., etc.), normalmente en el aviso de privacidad."),
     ("RFC", 16, "RFC publicado en el sitio, o el del padrón REPSE cuando la coincidencia es alta."),
-    ("Estado", 20, "Estado donde está ubicada la empresa, según su dirección o coordenadas. Es el que usan los filtros y el resumen."),
+    ("Estado", 20, "Estados donde la empresa tiene sucursales o instalaciones ubicadas. Es el que usan los filtros y el resumen."),
+    ("Sucursales", 10, "Número de fichas de Google Places de la empresa (una por sucursal)."),
+    ("Sucursales: direcciones", 60, "Dirección de cada sucursal."),
     ("Apareció en búsquedas de", 34, "Estados cuyas búsquedas devolvieron a esta empresa (puede incluir estados vecinos; no indica ubicación)."),
     ("Cobertura mencionada", 34, "Estados que el sitio menciona en su texto."),
     ("Dirección", 50, "Dirección publicada (datos estructurados o texto alrededor del C.P.)."),
@@ -847,7 +855,8 @@ def a_fila(i, k, r):
 def _a_fila(i, k, r):
     j = lambda v: "; ".join(v) if isinstance(v, list) else (v or "")
     rd = r.get("redes", {})
-    return [i, r.get("nombre", ""), r.get("razon_social", ""), r.get("rfc", ""), r.get("estado_sede", ""),
+    return [i, r.get("nombre", ""), r.get("razon_social", ""), r.get("rfc", ""), j(estado_principal(r)),
+            len(r.get("sucursales") or []) or "", " | ".join(x.get("direccion", "") for x in (r.get("sucursales") or []) if x.get("direccion")) if len(r.get("sucursales") or []) > 1 else "",
             j(r.get("estados_busqueda", [])), j(r.get("estados_mencionados", [])), r.get("direccion", ""), r.get("cp", ""),
             j(r.get("telefonos", [])), rd.get("WhatsApp", ""), j(r.get("correos", [])), r.get("sitio", ""),
             r.get("confianza", ""), r.get("confianza_nivel", ""), " | ".join(r.get("confianza_alertas", [])), r.get("confianza_verificadas", ""),
@@ -1015,7 +1024,9 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
         destino = descartados if motivo else grupos
         g = destino.setdefault(clave_emp, {"dominio": c["dominio"], "titulo": c["titulo"], "url": c["url"], "estados": [],
                                            "frases": [], "consultas": set(), "extra": c["extra"], "motivo": motivo,
-                                           "motores": []})
+                                           "motores": [], "fichas": {}})
+        if c["extra"].get("place_id"):  # cada ficha de Google Places es una sucursal de la empresa
+            g["fichas"].setdefault(c["extra"]["place_id"], (c["titulo"], c["extra"]))
         if c.get("motor", motores[0]) not in g["motores"]:
             g["motores"].append(c.get("motor", motores[0]))
         if c["extra"].get("place_id") and not g["extra"].get("place_id"):
@@ -1069,6 +1080,10 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
             "estados_busqueda": sorted(set(previo.get("estados_busqueda", [])) | set(g["estados"]), key=ESTADOS.index),
             "frases": g["frases"], "n_consultas": len(g["consultas"]), "fuente": ", ".join(sorted(g["motores"])),
             "maps": x.get("maps", ""), "calificacion": x.get("calificacion", ""), "resenas": x.get("resenas", ""),
+            "sucursales": [{"nombre": tit, "direccion": ex.get("direccion", ""), "estado": estado_de_direccion(ex.get("direccion", "")),
+                            "telefono": limpiar_tel(ex.get("telefono", "")) or ex.get("telefono", ""), "lat": ex.get("lat") or "",
+                            "lng": ex.get("lng") or "", "maps": ex.get("maps", ""), "calificacion": ex.get("calificacion", "")}
+                           for tit, ex in g["fichas"].values()],
             "lat": x.get("lat") or previo.get("lat") or "", "lng": x.get("lng") or previo.get("lng") or "",
         })
         if x.get("telefono"):
