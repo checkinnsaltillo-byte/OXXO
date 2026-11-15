@@ -23,7 +23,12 @@ BUCKET = os.environ["BUCKET"]
 PROYECTO = os.environ["PROYECTO"]
 REGION = os.environ.get("REGION", "us-central1")
 JOB = os.environ.get("JOB", "oxxo-scraper")
-MAX_MIN_CORRIDA = 150  # si una corrida lleva más de esto, se considera atorada
+MAX_MIN_CORRIDA = 150
+try:  # número de versión: se sube en cada despliegue (archivo VERSION)
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")) as _f:
+        VERSION = _f.read().strip()
+except OSError:
+    VERSION = "?"  # si una corrida lleva más de esto, se considera atorada
 
 app = Flask(__name__, static_folder="static")
 _cubeta = None
@@ -60,9 +65,9 @@ def estado_actual():
 
 @app.get("/")
 def inicio():
-    r = send_from_directory(app.static_folder, "index.html")
-    r.headers["Cache-Control"] = "no-cache"
-    return r
+    with open(os.path.join(app.static_folder, "index.html"), encoding="utf-8") as f:
+        html = f.read().replace("{{VERSION}}", VERSION)
+    return Response(html, headers={"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache"})
 
 
 # Campos que viajan en la lista (tabla, filtros, mapa). El resto se pide por empresa al abrir su detalle.

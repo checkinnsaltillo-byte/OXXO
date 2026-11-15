@@ -10,6 +10,7 @@
 body{margin:0;font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--tinta);background:var(--fondo)}
 header{background:var(--verde);color:#fff;padding:14px 20px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:30}
 header h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.1px}
+header .ver{display:inline-block;margin-left:8px;padding:2px 9px;border-radius:99px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);font-size:12px;font-weight:650;vertical-align:middle;letter-spacing:.2px}
 header .sub{font-size:12px;opacity:.8;margin-top:2px}
 header .esp{flex:1;min-width:10px}
 .btn{border:1px solid var(--linea);background:var(--papel);color:var(--tinta);border-radius:8px;padding:8px 13px;font:inherit;font-weight:600;cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:7px}
@@ -133,7 +134,7 @@ body.mapa-on main{margin-right:44vw;max-width:none}
 <body>
 <header>
   <div>
-    <h1>Directorio de empresas · Residuos de manejo especial · México</h1>
+    <h1>Directorio de empresas · Residuos de manejo especial · México <span class="ver" title="Versión del sistema">v{{VERSION}}</span></h1>
     <div class="sub" id="sub">Cargando…</div>
   </div>
   <div class="esp"></div>
