@@ -50,6 +50,8 @@ BASE_JSON = os.path.join(DATOS, "directorio_rme.json")
 SALIDA_XLSX = os.path.join(DATOS, "directorio_rme.xlsx")
 SERP_JSON = os.path.join(DATOS, "serp_google.json")
 CORRIDA_JSON = os.path.join(DATOS, "ultima_corrida.json")
+VISITAS_JSON = os.path.join(DATOS, "visitas.json")
+SITIOS_DIAS = float(os.environ.get("SITIOS_DIAS", "28"))  # cada cuánto se vuelve a visitar un sitio web (mensual, con 2 días de holgura)
 
 
 def AVISAR(etapa, hecho=0, total=0):
@@ -1044,8 +1046,27 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
     if os.path.exists(BASE_JSON):
         with open(BASE_JSON, encoding="utf-8") as f:
             base = json.load(f)
-    resultados = {}
-    con_sitio = {k: g for k, g in grupos.items() if g["dominio"]}
+    # Un sitio web se vuelve a visitar solo si su última visita tiene más de SITIOS_DIAS días.
+    visitas = {}
+    if os.path.exists(VISITAS_JSON):
+        with open(VISITAS_JSON, encoding="utf-8") as f:
+            visitas = json.load(f)
+    limite_sitio = (dt.date.today() - dt.timedelta(days=SITIOS_DIAS)).isoformat()
+    resultados, con_sitio, reutilizados = {}, {}, 0
+    for k, g in grupos.items():
+        if not g["dominio"]:
+            continue
+        b = base.get(k) or {}
+        fecha = (visitas.get(k) or {}).get("fecha") or b.get("sitio_visitado") or (b.get("ultima_verificacion", "") if b.get("respondio") else "")
+        if fecha >= limite_sitio and b.get("es_empresa") and b.get("estatus_mes") != "Sin respuesta":
+            resultados[k] = dict(b, respondio=True, sitio_visitado=fecha, _reusado=True)  # se conserva lo extraído
+            reutilizados += 1
+        elif fecha >= limite_sitio and (visitas.get(k) or {}).get("motivo"):
+            resultados[k] = {"respondio": False, "_descartado": visitas[k]["motivo"]}  # ya se había descartado
+            reutilizados += 1
+        else:
+            con_sitio[k] = g
+    print("Sitios: %d por visitar, %d visitados hace menos de %d días" % (len(con_sitio), reutilizados, SITIOS_DIAS))
     AVISAR("Visitando sitios de empresas", 0, len(con_sitio))
     with ThreadPoolExecutor(max_workers=hilos) as ex:
         futuros = {ex.submit(enriquecer, g["dominio"], "https://" + g["dominio"]): k for k, g in con_sitio.items()}
@@ -1054,6 +1075,7 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
                 resultados[futuros[fu]] = fu.result()
             except Exception as e:
                 resultados[futuros[fu]] = {"respondio": False, "error": str(e)[:100]}
+            visitas[futuros[fu]] = {"fecha": hoy}
             if n % 5 == 0 or n == len(con_sitio):
                 AVISAR("Visitando sitios de empresas", n, len(con_sitio))
 
@@ -1065,6 +1087,9 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
         r = resultados.get(k, {"respondio": False})
         x = g["extra"]
         previo = base.get(k, {})
+        if r.get("_descartado"):
+            lista_desc.append({"dominio": g["dominio"], "titulo": g["titulo"], "estados": g["estados"], "motivo": r["_descartado"]})
+            continue
         if g["dominio"] and not r.get("respondio"):
             if previo.get("es_empresa"):
                 previo.update({"estatus_mes": "Sin respuesta", "ultima_verificacion": hoy})
@@ -1072,8 +1097,12 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
                 cuenta["Sin respuesta"] += 1
             else:
                 lista_desc.append({"dominio": g["dominio"], "titulo": g["titulo"], "estados": g["estados"], "motivo": "el sitio no respondió"})
+                visitas[k] = {"fecha": hoy, "motivo": "el sitio no respondió"}
             continue
         nuevo = dict(r)
+        nuevo.pop("_reusado", None)
+        if g["dominio"] and not r.get("_reusado"):
+            nuevo["sitio_visitado"] = hoy
         nuevo.update({
             "sitio": ("https://" + g["dominio"]) if g["dominio"] else x.get("web", ""),
             # con varias sucursales el nombre de una ficha («PASA Aguascalientes») no representa a la empresa: se usa el del sitio
@@ -1106,6 +1135,8 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
         if not nuevo["es_empresa"]:
             lista_desc.append({"dominio": g["dominio"], "titulo": g["titulo"], "estados": g["estados"],
                                "motivo": "baja relevancia (%s)" % nuevo.get("relevancia", 0)})
+            if g["dominio"]:
+                visitas[k] = {"fecha": (visitas.get(k) or {}).get("fecha", hoy), "motivo": "baja relevancia (%s)" % nuevo.get("relevancia", 0)}
             continue
         if not previo:
             nuevo["estatus_mes"], nuevo["primera_deteccion"] = "Nuevo", hoy
@@ -1140,13 +1171,15 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
     print("Perfil: %s" % {k: v for k, v in perfil.items() if not isinstance(v, list)})
     AVISAR("Guardando resultados")
 
+    with open(VISITAS_JSON, "w", encoding="utf-8") as f:
+        json.dump(visitas, f, ensure_ascii=False)
     with open(BASE_JSON, "w", encoding="utf-8") as f:
         json.dump(base, f, ensure_ascii=False, indent=1)
     lista_desc.sort(key=lambda d: (d["motivo"], d["dominio"]))
     n = exportar_xlsx(base, lista_desc, bitacora, salida, hoy)
     resumen = {"fecha": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z", "motor": ", ".join(motores),
                "busqueda_reutilizada_de": de_cache or "",
-               "repse_validadas": repse_ok, "repse_sin_respuesta": repse_fallas, "perfil": perfil,
+               "sitios_visitados": len(con_sitio), "sitios_reutilizados": reutilizados, "repse_validadas": repse_ok, "repse_sin_respuesta": repse_fallas, "perfil": perfil,
                "consultas": len(bitacora), "resultados_busqueda": len(cands), "candidatos": len(grupos),
                "empresas": n, "descartados": len(lista_desc), "por_estatus": dict(cuenta),
                "estados_con_resultados": sorted({b[0] for b in bitacora if b[4]}, key=ESTADOS.index),

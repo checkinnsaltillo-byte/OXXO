@@ -20,8 +20,8 @@ from google.cloud import storage  # noqa: E402
 import scraper_rme as s  # noqa: E402
 
 BUCKET = os.environ["BUCKET"]
-ARCHIVOS = ["directorio_rme.json", "serp_google.json", "busqueda_cache.json"]
-SALIDAS = ["directorio_rme.json", "directorio_rme.xlsx", "ultima_corrida.json", "busqueda_cache.json"]
+ARCHIVOS = ["directorio_rme.json", "serp_google.json", "busqueda_cache.json", "visitas.json"]
+SALIDAS = ["directorio_rme.json", "directorio_rme.xlsx", "ultima_corrida.json", "busqueda_cache.json", "visitas.json"]
 
 
 def ahora():
