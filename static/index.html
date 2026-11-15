@@ -62,7 +62,7 @@ th.ord{cursor:pointer}th.ord:hover{color:var(--verde)}
 #tabla tbody tr{cursor:pointer}#tabla tbody tr:hover{background:#f7faf8}
 .tag{display:inline-block;background:var(--suave);color:var(--verde);border-radius:5px;padding:1px 7px;margin:1px 3px 1px 0;font-size:12px;white-space:nowrap}
 .tag.r{background:#f3efe4;color:#6a5417}
-.tag.fu{display:block;width:max-content;margin:2px 0;font-weight:600}.tag.gp{background:#e3ecfb;color:#234f9c}.tag.bw{background:#efe6fa;color:#5b2d91}.tag.dn{background:#fdf1d6;color:#8a5a00}.tag.sm{background:#dff3e3;color:#1c6b33}
+.tag.fu{display:block;width:max-content;margin:2px 0;font-weight:600}.tag.gp{background:#e3ecfb;color:#234f9c}.tag.bw{background:#efe6fa;color:#5b2d91}.tag.dn{background:#fdf1d6;color:#8a5a00}.tag.sm{background:#dff3e3;color:#1c6b33}.tag.tr{background:#fbe3ee;color:#8e1f55}
 .est{font-size:12px;font-weight:600;border-radius:20px;padding:2px 9px;white-space:nowrap}
 .est.Nuevo{background:#dff3e3;color:#1c6b33}.est.Actualizado{background:#e3ecfb;color:#234f9c}.est.Sin{background:#eceeed;color:#59625f}.est.resp{background:#fbe6e2;color:#9b3023}.est.duda{background:#fdf1d6;color:#8a5a00}
 .cf{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
@@ -180,14 +180,14 @@ const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLow
 const lista = v => Array.isArray(v) ? v : (v ? [v] : []);
 const urlOk = u => /^https?:\/\//i.test(u || '') ? u : '';
 
-const FU_CLS = {'Google Places': 'gp', 'Buscador web': 'bw', 'DENUE': 'dn', 'SEMARNAT': 'sm'};
+const FU_CLS = {'Google Places': 'gp', 'Buscador web': 'bw', 'DENUE': 'dn', 'SEMARNAT': 'sm', 'Transparencia': 'tr'};
 const CONF_CLS = {'Alta': 'a', 'Media': 'm', 'Baja': 'b', 'No confiable': 'x', 'Sin información suficiente': 's'};
 const REPSE_CLS = {'Registrado vigente': 'Nuevo', 'Registro vencido': 'resp', 'Sin registro activo': 'resp', 'Coincidencia dudosa': 'duda'};
 const REPSE_ORD = {'Registrado vigente': 1, 'Registro vencido': 2, 'Sin registro activo': 3, 'Coincidencia dudosa': 4, 'No encontrado': 5};
 const MOTORES = {places: 'Google Maps', gemini: 'Google web (Gemini)', cse: 'Google web (API)', importar: 'Google web (captura)'};
 let EMP = [], CORRIDA = {}, VISTA = [];
-const F = {confianza: new Set(), sat: new Set(), semarnat: new Set(), q: '', estados: new Set(), sede: new Set(), servicios: new Set(), residuos: new Set(), repse: new Set(), fuente: new Set(), estatus: new Set(), flags: new Set()};
-const FILTROS = [['confianza', 'Confianza'], ['estados', 'Estado (búsqueda)'], ['sede', 'Estado sede'], ['servicios', 'Servicio'], ['residuos', 'Tipo de residuo'], ['repse', 'REPSE'], ['sat', 'SAT'], ['semarnat', 'SEMARNAT'], ['fuente', 'Fuente'], ['estatus', 'Estatus']];
+const F = {estatal: new Set(), confianza: new Set(), sat: new Set(), semarnat: new Set(), q: '', estados: new Set(), sede: new Set(), servicios: new Set(), residuos: new Set(), repse: new Set(), fuente: new Set(), estatus: new Set(), flags: new Set()};
+const FILTROS = [['confianza', 'Confianza'], ['estados', 'Estado (búsqueda)'], ['sede', 'Estado sede'], ['servicios', 'Servicio'], ['residuos', 'Tipo de residuo'], ['repse', 'REPSE'], ['sat', 'SAT'], ['semarnat', 'SEMARNAT'], ['estatal', 'Aut. estatal'], ['fuente', 'Fuente'], ['estatus', 'Estatus']];
 const ORD = {k: 'confianza', dir: -1};
 let PAGINA = 0; const POR_PAG = 50;
 
@@ -201,6 +201,7 @@ const DIMS = {
   confianza: {t: 'Nivel de confianza', g: r => [r.confianza_nivel || 'Sin calificar']},
   sat: {t: 'SAT (69 / 69-B)', g: r => [r.sat_estatus || 'Sin cruzar']},
   semarnat: {t: 'SEMARNAT', g: r => [r.semarnat_estatus || 'Sin cruzar']},
+  estatal: {t: 'Autorización estatal (Transparencia)', g: r => [r.transparencia_estatus || 'Sin autorización estatal localizada']},
   semrubro: {t: 'SEMARNAT: rubro autorizado', g: r => lista(r.semarnat_rubros).length ? lista(r.semarnat_rubros) : ['(ninguno)']},
   denue: {t: 'DENUE', g: r => [r.denue_estatus || 'Sin cruzar']},
   tamano: {t: 'Personal ocupado (DENUE)', g: r => [r.denue_personal || '(sin dato)']},
@@ -326,7 +327,7 @@ function detalle(r) {
     ['DENUE', esc(r.denue_estatus ? r.denue_estatus + (r.denue_coincidencia ? ' (cruce por ' + r.denue_coincidencia.toLowerCase() + ')' : '') : '')],
     ['Nombre en DENUE', esc(r.denue_nombre)], ['Actividad (DENUE)', esc(r.denue_actividad)], ['Personal ocupado (DENUE)', esc(r.denue_personal)],
     ['Alta en DENUE', esc(r.denue_alta)], ['Origen de la razón social', esc(r.razon_social_fuente)], ['Origen del RFC', esc(r.rfc_fuente)],
-    ['Dominio registrado', esc(r.dominio_creado)], ['Reseñas en Google', esc(r.resenas)],
+    ['Autorización estatal', esc(r.transparencia_estatus)], ['Dominio registrado', esc(r.dominio_creado)], ['Reseñas en Google', esc(r.resenas)],
     ['REPSE', r.repse_estatus ? `<span class="est ${REPSE_CLS[r.repse_estatus] || 'Sin'}">${esc(r.repse_estatus)}</span>` : ''], ['Folio REPSE', esc(r.repse_folio)],
     ['Razón social en REPSE', esc(r.repse_razon_social)], ['RFC en REPSE', esc(r.repse_rfc)],
     ['Entidad / municipio REPSE', esc([r.repse_entidad, r.repse_municipio].filter(Boolean).join(' / '))], ['Aviso de registro', esc(r.repse_aviso)],
@@ -350,6 +351,7 @@ function perfil(r) {
     lista(r.confianza_bloques).map(b => `<tr><td><b>${esc(b.b)}</b></td><td class="nowrap"><span class="barra"><i style="width:${Math.round(100 * b.p / b.m)}%"></i></span>${b.p} / ${b.m}</td><td>${esc(b.nota)}</td><td class="tenue">${esc(b.fuente)}</td><td class="tenue nowrap">${esc(b.fecha)}</td><td>${b.v ? '✓ Sí' : '<span class="tenue">No se pudo</span>'}</td></tr>`).join('') + '</table>' +
     (al.length ? `<div class="al"><b>Alertas:</b> ${al.map(esc).join(' · ')}</div>` : '') +
     (sat.length ? `<ul>${sat.map(h => `<li>SAT ${esc(h.lista)} — ${esc(h.situacion)} · ${esc(h.nombre_lista)} (${esc(h.rfc_lista)}) · ${esc(h.fecha)} · cruce por ${esc(h.cruce)}</li>`).join('')}</ul>` : '') +
+    (lista(r.transparencia).length ? `<ul>${lista(r.transparencia).map(a => `<li>Autorización estatal (${esc(a.estado)}) — ${esc(a.tipo)} ${esc(a.numero)}: ${esc(a.objeto)} · vigencia ${esc(a.vigencia_inicio || 's/d')} a ${esc(a.vigencia || 's/d')}${urlOk(a.documento) ? ` · <a href="${esc(a.documento)}" target="_blank" rel="noopener">documento</a>` : ''}</li>`).join('')}</ul>` : '') +
     (sem.length ? `<ul>${sem.map(a => `<li>SEMARNAT ${esc(a.rubro)} — autorización ${esc(a.autorizacion)}, vigencia ${esc(a.vigencia || 's/d')} · ${esc(a.empresa)} (${esc(a.municipio)}, ${esc(a.estado)})${a.residuos ? ' · ' + esc(a.residuos) : ''}</li>`).join('')}</ul>` : '') + '</div>';
 }
 // Selección compartida entre la tabla y el mapa.
@@ -489,9 +491,9 @@ function pintarKpis() {
     [n(r => r.razon_social), 'Con razón social'], [n(r => r.rfc), 'Con RFC'], [n(r => r.repse_estatus === 'Registrado vigente'), 'Con REPSE vigente'], [n(r => r.confianza_nivel === 'Alta'), 'Confianza alta'], [n(r => lista(r.confianza_alertas).length), 'Con alertas'], [n(r => r.estatus_mes === 'Nuevo'), 'Nuevas en la última corrida']];
   $('#kpis').innerHTML = k.map(([v, t]) => `<div class="kpi"><b>${v}</b><span>${t}</span></div>`).join('');
   const FU = [['Google Places', 'Fichas de Google Maps'], ['Buscador web', 'Google web vía Gemini y captura'], ['DENUE', 'INEGI · establecimientos del giro'],
-    ['SEMARNAT', 'Padrón federal de residuos peligrosos'], ['Portal estatal', 'Padrones estatales de manejo especial'], ['Transparencia', 'Plataforma Nacional de Transparencia']];
+    ['SEMARNAT', 'Padrón federal de residuos peligrosos'], ['Portal estatal', 'Padrones estatales de manejo especial'], ['Transparencia', 'Autorizaciones estatales de residuos (PNT)']];
   $('#kpisFuente').innerHTML = FU.map(([f, d]) => {
-    const c = n(r => lista(r.fuentes).includes(f)), solo = n(r => r.origen === f), pend = f === 'Portal estatal' || f === 'Transparencia';
+    const c = n(r => lista(r.fuentes).includes(f)), solo = n(r => r.origen === f), pend = f === 'Portal estatal';
     return `<div class="kpi${pend ? ' pend' : ''}${F.fuente.has(f) ? ' on' : ''}" data-f="${pend ? '' : esc(f)}"><b>${pend ? '—' : c.toLocaleString('es-MX')}</b><span>${esc(f)}</span><small>${pend ? 'Aún no implementada' : esc(d) + ' · ' + solo.toLocaleString('es-MX') + ' dados de alta por esta fuente'}</small></div>`;
   }).join('');
   $('#sub').textContent = CORRIDA.fecha ? `Última extracción: ${fecha(CORRIDA.fecha)} · ${CORRIDA.consultas} consultas, ${CORRIDA.candidatos} sitios revisados` : 'Aún no se ha ejecutado ninguna extracción.';

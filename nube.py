@@ -54,6 +54,12 @@ def main():
             b = cubeta.blob(nombre)
             if b.exists():
                 b.download_to_filename(os.path.join(TRABAJO, nombre))
+        for b in cubeta.list_blobs(prefix="fuentes/"):  # archivos cargados a mano (Transparencia)
+            if b.name.endswith("/"):
+                continue
+            destino = os.path.join(TRABAJO, b.name)
+            os.makedirs(os.path.dirname(destino), exist_ok=True)
+            b.download_to_filename(destino)
         resumen = s.ejecutar("auto", hilos=int(os.environ.get("HILOS", "24")))
         for nombre in SALIDAS:
             if not os.path.exists(os.path.join(TRABAJO, nombre)):

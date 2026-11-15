@@ -155,7 +155,8 @@ def identidad(base):
     propios = [k for k in base if k.startswith("denue:")]
     importar = not propios or any((base[k].get("denue_verificado") or "") < limite for k in propios)
     pend = [k for k, r in base.items() if r.get("es_empresa") and not k.startswith("denue:") and
-            ((r.get("denue_verificado") or "") < limite or (importar and r.get("denue_estatus") != "Encontrado"))]
+            ((r.get("denue_verificado") or "") < limite or (importar and r.get("denue_estatus") != "Encontrado")
+             or (not r.get("lat") and r.get("razon_social") and r.get("denue_regla") != 2))]
     if not pend and not importar:
         return {"denue_pendientes": 0}
     # Empresas del padrón SEMARNAT: se buscan en el DENUE por teléfono o razón social para darles ubicación
@@ -168,6 +169,12 @@ def identidad(base):
                     sem_tel[tel10(tt)].append(g)
     _SEM_GEO.clear()
     giro = {}  # id DENUE -> fila completa (establecimientos del giro)
+    por_rs = defaultdict(list)  # empresas sin ubicación: se buscan en el DENUE por razón social dentro del mismo estado
+    for k in pend:
+        r = base[k]
+        n = s.nucleo(r.get("razon_social"))
+        if not r.get("lat") and len(n) >= 10 and len(n.split()) >= 2:
+            por_rs[n].append((k, sinac(r.get("estado_sede"))))
     por_tel, por_dom, por_mail, por_celda = defaultdict(list), defaultdict(list), defaultdict(list), defaultdict(list)
     nombres = {}
     for k in pend:
@@ -230,6 +237,11 @@ def identidad(base):
                             gs = [g for g in sem_nom.get(s.nucleo(f[i_rs]), ()) if not g[1] or sinac(estado_std(f[ix["entidad"]])) == g[1]]
                         for g in gs or ():
                             _SEM_GEO.setdefault(g, {c: f[i].strip() for c, i in ix.items()})
+                    if por_rs and f[i_rs]:
+                        cand = por_rs.get(s.nucleo(f[i_rs]))
+                        if cand:
+                            edo = sinac(estado_std(f[ix["entidad"]]))
+                            hits += [(80, "Razón social", k) for k, e in cand if not e or e == edo]
                     t = f[ix["telefono"]]
                     if t and tel10(t) in por_tel:
                         hits += [(92, "Teléfono", k) for k in por_tel[tel10(t)]]
@@ -285,6 +297,7 @@ def identidad(base):
         for c in [c for c in r if c.startswith("denue_")]:
             r.pop(c)
         r["denue_verificado"] = HOY()
+        r["denue_regla"] = 2
         if k not in mejor:
             r["denue_estatus"] = "No encontrado"
             continue
@@ -610,6 +623,159 @@ def semarnat_cruzar(base):
     return {"semarnat_rubros": _SEM["rubros"], "semarnat_con_autorizacion": con}
 
 
+# ───────────────────────── 2b-bis. TRANSPARENCIA (PNT) ─────────────────────────
+# Directorio «Concesiones, licencias, permisos y autorizaciones» de la dependencia ambiental de cada estado
+# (Plataforma Nacional de Transparencia). Los CSV se bajan a mano desde el navegador (el sitio bloquea
+# programas) y se guardan en fuentes/transparencia/<año>/NN_XXX.csv, donde NN es la clave INEGI del estado.
+ENT_INEGI = ["Aguascalientes", "Baja California", "Baja California Sur", "Campeche", "Coahuila", "Colima", "Chiapas",
+             "Chihuahua", "Ciudad de México", "Durango", "Guanajuato", "Guerrero", "Hidalgo", "Jalisco", "Estado de México",
+             "Michoacán", "Morelos", "Nayarit", "Nuevo León", "Oaxaca", "Puebla", "Querétaro", "Quintana Roo",
+             "San Luis Potosí", "Sinaloa", "Sonora", "Tabasco", "Tamaulipas", "Tlaxcala", "Veracruz", "Yucatán", "Zacatecas"]
+TR_RES = re.compile(r"residuo|manejo especial|recicl|acopio|chatarra|desecho|relleno sanitario|\brme\b|\brsu\b|llantas|escombro|aceites? usados?")
+TR_SERV = re.compile(r"recolec|transport|acopio|almacenamiento|recicl|tratamiento|disposicion final|co-?proces|prestador|transferencia|"
+                     r"valoriz|aprovechamiento|destino final|manejo integral|compra|comercializ|relleno sanitario|confinamiento|trituraci|compost")
+TR_FUERTE = re.compile(r"recolec|transport|acopio|recicl|tratamiento|disposicion final|co-?proces|transferencia|relleno sanitario|confinamiento|prestador")
+TR_GEN = re.compile(r"generador|plan de manejo|cedula de operacion")
+TR_GEN_SIEMPRE = re.compile(r"llevar un manejo integral|que generaran|residuos que genera")
+RE_TITULAR_NULO = re.compile(r"^(no aplica|ver nota|persona voluntaria|persona fisica|persona moral|no se |sin |n/?a\b|ningun)")
+TR_VACIO = {"", "no aplica", "n/a", "na", "no dato", "sin dato", "ver nota", "persona fisica", "persona moral", "publica", "privada",
+            "s/n", "no", "no se genero", "ninguno", "ninguna", "no disponible", "nd", "sin informacion", "no se cuenta", "-", "x"}
+
+
+def fecha_any(x):
+    x = (x or "").strip()
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", x)
+    return "%s-%s-%s" % m.groups() if m else fecha_iso(x)
+
+
+def transparencia_filas():
+    """Lee los CSV de Transparencia y devuelve (autorizaciones de servicio de residuos, resumen por estado)."""
+    import glob
+    csv.field_size_limit(10 ** 9)
+    filas, resumen = [], {}
+    for ruta in sorted(glob.glob(os.path.join(s.DATOS, "fuentes", "transparencia", "**", "*.csv"), recursive=True)):
+        m = re.match(r"(\d{2})_", os.path.basename(ruta))
+        if not m or not 1 <= int(m.group(1)) <= 32:
+            continue
+        estado = ENT_INEGI[int(m.group(1)) - 1]
+        with open(ruta, "rb") as fh:
+            lineas = list(csv.reader(io.StringIO(texto_csv(fh.read()))))
+        if len(lineas) < 2:
+            continue
+        cab = [sinac(c) for c in lineas[0]]
+        col = lambda pref: next((i for i, c in enumerate(cab) if c.startswith(pref)), None)  # noqa: E731
+        ix = {"tipo": col("tipo de acto"), "numero": col("numero de control"), "objeto": col("objeto"), "area": col("unidad(es)"),
+              "nom": col("nombre(s) de la persona fisica"), "ap1": col("primer apellido de la persona fisica"),
+              "ap2": col("segundo apellido de la persona fisica"), "rs": col("razon social"), "vini": col("fecha de inicio de vigencia"),
+              "vfin": col("fecha de termino de vigencia"), "doc": col("hipervinculo al contrato"),
+              "pini": col("fecha de inicio del periodo"), "pfin": col("fecha de termino del periodo")}
+        cuenta = {"filas": len(lineas) - 1, "residuos": 0, "servicio": 0, "generadores": 0, "sin_titular": 0}
+        for f in lineas[1:]:
+            g = lambda c: re.sub(r"\s+", " ", f[ix[c]]).strip() if ix[c] is not None and len(f) > ix[c] else ""  # noqa: E731
+            txt = sinac(g("objeto") + " " + g("numero"))
+            if not TR_RES.search(txt):
+                continue
+            cuenta["residuos"] += 1
+            if TR_GEN_SIEMPRE.search(txt) or (TR_GEN.search(txt) and not TR_FUERTE.search(txt)):
+                cuenta["generadores"] += 1  # quien genera residuos, no quien presta el servicio
+                continue
+            if not TR_SERV.search(txt) or sinac(g("tipo")).startswith("convenio"):
+                continue
+            rs = g("rs")
+            nulo = lambda x: sinac(x).strip(" .") in TR_VACIO or bool(RE_TITULAR_NULO.match(sinac(x)))  # noqa: E731
+            moral = not nulo(rs)
+            titular = rs if moral else ""
+            if not titular and not nulo(g("nom")):
+                titular = " ".join(x for x in (g("nom"), g("ap1"), g("ap2")) if not nulo(x))
+            if len(s.nucleo(titular)) < 5:
+                cuenta["sin_titular"] += 1
+                continue
+            cuenta["servicio"] += 1
+            filas.append({"estado": estado, "titular": titular, "moral": moral, "tipo": g("tipo"), "numero": g("numero"),
+                          "objeto": g("objeto")[:260], "area": g("area")[:90], "vigencia_inicio": fecha_any(g("vini")),
+                          "vigencia": fecha_any(g("vfin")), "periodo": "%s a %s" % (fecha_any(g("pini")), fecha_any(g("pfin"))),
+                          "documento": g("doc") if g("doc").lower().startswith("http") else ""})
+        resumen[estado] = cuenta
+    return filas, resumen
+
+
+def transparencia_importar(base):
+    """Agrega las autorizaciones estatales a las empresas ya registradas y da de alta las que no estaban."""
+    filas, resumen = transparencia_filas()
+    for r in base.values():  # se recalcula completo en cada corrida
+        r.pop("transparencia", None)
+        r.pop("transparencia_estatus", None)
+    if not filas:
+        for k in [k for k in base if k.startswith("transp:")]:
+            base.pop(k)
+        return {"transparencia_estados": 0}
+    por_nom = defaultdict(set)
+    for k, r in base.items():
+        if not r.get("es_empresa") or k.startswith("transp:"):
+            continue
+        for campo in ("razon_social", "repse_razon_social", "denue_razon_social", "nombre"):
+            n = s.nucleo(r.get(campo))
+            if len(n) >= 8 and n not in s.GENERICAS:
+                por_nom[n].add(k)
+    grupos = defaultdict(list)
+    for x in filas:
+        grupos[(s.nucleo(x["titular"]), x["estado"])].append(x)
+    hoy, nuevos, vigentes, ligadas = HOY(), 0, set(), set()
+
+    def compacta(xs):
+        vistos, sal = set(), []
+        for x in sorted(xs, key=lambda x: x["vigencia"] or x["vigencia_inicio"], reverse=True):
+            clave = (x["numero"], x["objeto"][:60])
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            sal.append({c: x[c] for c in ("estado", "tipo", "numero", "objeto", "area", "vigencia_inicio", "vigencia", "periodo", "documento")})
+        return sal[:12]
+
+    def estatus(a):
+        if any(x["vigencia"] and x["vigencia"] >= hoy for x in a):
+            return "Autorización estatal vigente"
+        if all(x["vigencia"] for x in a):
+            return "Autorización estatal vencida"
+        return "Autorización estatal (sin fecha de término)"
+
+    for (n, estado), xs in grupos.items():
+        ks = por_nom.get(n)
+        if ks:
+            for k in ks:
+                base[k]["transparencia"] = (base[k].get("transparencia") or []) + compacta(xs)
+                ligadas.add(k)
+            continue
+        k = "transp:%s|%s" % (n, sinac(estado))
+        vigentes.add(k)
+        previo = base.get(k)
+        x0 = xs[0]
+        texto = " ".join(x["objeto"] + " " + x["numero"] for x in xs)
+        residuos = set(s.marcar(texto, s.RESIDUOS))
+        r = dict(previo or {})
+        r.update({"es_empresa": True, "origen": "Transparencia", "nombre": titulo(x0["titular"]), "estado_sede": estado,
+                  "estados_busqueda": [estado], "servicios": s.marcar(texto, s.SERVICIOS) or ["Manejo integral"],
+                  "residuos": sorted(residuos), "autorizaciones": ["Autoridad ambiental estatal"],
+                  "num_autorizacion": next((x["numero"] for x in xs if x["numero"]), ""),
+                  "estatus_mes": "Sin cambios" if previo else "Nuevo", "primera_deteccion": (previo or {}).get("primera_deteccion", hoy),
+                  "ultima_verificacion": hoy, "transparencia": compacta(xs)})
+        if x0["moral"]:
+            r["razon_social"], r["razon_social_fuente"] = x0["titular"], "Transparencia"
+        for c in ("telefonos", "correos"):
+            r.setdefault(c, [])
+        nuevos += previo is None
+        base[k] = r
+    for k in [k for k in base if k.startswith("transp:") and k not in vigentes]:
+        base.pop(k)
+    for k in ligadas | vigentes:
+        base[k]["transparencia"] = base[k]["transparencia"][:12]
+        base[k]["transparencia_estatus"] = estatus(base[k]["transparencia"])
+    return {"transparencia_estados": len(resumen), "transparencia_autorizaciones": len(filas),
+            "transparencia_generadores_omitidos": sum(c["generadores"] for c in resumen.values()),
+            "transparencia_registros_nuevos": nuevos, "transparencia_registros": len(vigentes),
+            "transparencia_ligadas_a_existentes": len(ligadas), "transparencia_por_estado": resumen}
+
+
 FUENTE_MOTOR = {"places": "Google Places", "gemini": "Buscador web", "importar": "Buscador web", "cse": "Buscador web"}
 
 
@@ -621,8 +787,11 @@ def marcar_fuentes(k, r):
         fs.append("DENUE")
     if r.get("semarnat"):
         fs.append("SEMARNAT")
+    if r.get("transparencia"):
+        fs.append("Transparencia")
     r["fuentes"] = fs
     r["origen"] = "DENUE" if k.startswith("denue:") else "SEMARNAT" if k.startswith("semarnat:") else \
+        "Transparencia" if k.startswith("transp:") else \
         "Google Places" if "Google Places" in motores else "Buscador web"
 
 
@@ -683,7 +852,7 @@ def dominios(base, hilos=3):
 
 # ───────────────────────── 2d. Calificación ─────────────────────────
 FUENTES = {"fiscal": "SAT · listados art. 69, 69-B y 69-B Bis", "laboral": "STPS · padrón REPSE",
-           "ambiental": "SEMARNAT · empresas autorizadas (residuos peligrosos)", "existencia": "INEGI · DENUE",
+           "ambiental": "SEMARNAT (residuos peligrosos) y Transparencia (autorizaciones estatales)", "existencia": "INEGI · DENUE",
            "reputacion": "Google Maps y sitio web"}
 
 
@@ -729,8 +898,15 @@ def calificar(k, r):
 
     # Ambiental (20)
     e = r.get("semarnat_estatus", "")
+    te = r.get("transparencia_estatus", "")
     if e == "Autorización vigente":
-        p, nota, v = 20, "Autorización federal vigente: " + ", ".join(r.get("semarnat_rubros", [])[:4]), True
+        p, nota, v = 20, "Autorización federal vigente: " + ", ".join(r.get("semarnat_rubros", [])[:4]) + \
+            ("; además autorización estatal" if te else ""), True
+    elif te:
+        edos = ", ".join(sorted({x["estado"] for x in r.get("transparencia", [])}))
+        p, nota, v = (17 if te == "Autorización estatal vigente" else 12), "%s (%s), publicada en Transparencia" % (te, edos), True
+        if te == "Autorización estatal vencida":
+            alertas.append("Autorización estatal vencida")
     elif e.startswith("Autorización"):
         p, nota, v = 11, e + ": " + ", ".join(r.get("semarnat_rubros", [])[:4]), True
         if e == "Autorización vencida":
@@ -802,9 +978,20 @@ def calificar(k, r):
               "confianza_fecha": hoy.isoformat()})
 
 
+def padrones(base):
+    """Da de alta los registros de SEMARNAT y Transparencia (antes de REPSE, para que también se validen)."""
+    res = {}
+    for paso in (semarnat_importar, transparencia_importar):
+        try:
+            res.update(paso(base))
+        except Exception as e:
+            res[paso.__name__ + "_error"] = str(e)[:160]
+    return res
+
+
 def perfilar(base):
     res = {}
-    for paso in (semarnat_importar, sat_cruzar, semarnat_cruzar):
+    for paso in (sat_cruzar, semarnat_cruzar):
         try:
             res.update(paso(base))
         except Exception as e:  # una fuente caída no detiene la corrida

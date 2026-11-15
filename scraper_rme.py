@@ -707,7 +707,7 @@ def repse_todas(base, hilos=3):
     for k, r in base.items():
         if not r.get("es_empresa") or (r.get("repse_verificado") or "") >= limite:
             continue
-        if k.startswith(("denue:", "semarnat:")) and not r.get("razon_social"):
+        if k.startswith(("denue:", "semarnat:", "transp:")) and not r.get("razon_social"):
             r.update({"repse_estatus": "Sin razón social para buscar", "repse_verificado": dt.date.today().isoformat()})
             continue
         pend.append(k)
@@ -770,6 +770,8 @@ COLUMNAS = [  # (encabezado, ancho, descripción)
     ("SEMARNAT", 28, "Autorización federal para manejo de residuos peligrosos."),
     ("SEMARNAT: rubros", 36, "Rubros autorizados."),
     ("SEMARNAT: autorizaciones", 50, "Número de autorización y vigencia."),
+    ("Autorización estatal (Transparencia)", 28, "Autorizaciones de manejo de residuos otorgadas por la dependencia ambiental del estado, publicadas en la Plataforma Nacional de Transparencia."),
+    ("Autorizaciones estatales: detalle", 60, "Estado, número, objeto y vigencia."),
     ("DENUE", 14, "Si el establecimiento se localizó en el DENUE del INEGI."),
     ("DENUE: cruce por", 18, "Teléfono, sitio web, correo o ubicación y nombre."),
     ("DENUE: actividad", 40, "Actividad económica (SCIAN)."),
@@ -821,6 +823,8 @@ def _a_fila(i, k, r):
             " | ".join("%s %s/%s: %s" % (b["b"], b["p"], b["m"], b["nota"]) for b in r.get("confianza_bloques", [])),
             r.get("sat_estatus", ""), r.get("sat_cruce", ""), r.get("semarnat_estatus", ""), j(r.get("semarnat_rubros", [])),
             " | ".join("%s %s (vigencia %s)" % (a["rubro"], a["autorizacion"], a["vigencia"] or "s/d") for a in r.get("semarnat", [])),
+            r.get("transparencia_estatus", ""),
+            " | ".join("%s %s: %s (vigencia %s)" % (a["estado"], a["numero"], a["objeto"][:90], a["vigencia"] or "s/d") for a in r.get("transparencia", [])),
             r.get("denue_estatus", ""), r.get("denue_coincidencia", ""), r.get("denue_actividad", ""), r.get("denue_personal", ""),
             r.get("denue_alta", ""), r.get("dominio_creado", ""), r.get("razon_social_fuente", ""), r.get("rfc_fuente", ""),
             r.get("repse_estatus", ""), r.get("repse_folio", ""), r.get("repse_razon_social", ""),
@@ -1063,7 +1067,7 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
             nuevo["primera_deteccion"] = previo.get("primera_deteccion", hoy)
         nuevo["ultima_verificacion"] = hoy
         for c, v in previo.items():  # validaciones y cruces se conservan entre corridas
-            if c in CAMPOS_REPSE or c.endswith("_fuente") or c.startswith(("denue_", "sat_", "semarnat", "confianza", "dominio_")):
+            if c in CAMPOS_REPSE or c.endswith("_fuente") or c.startswith(("denue_", "sat_", "semarnat", "confianza", "dominio_", "transparencia")):
                 nuevo[c] = v
         for c in ("rfc", "razon_social"):  # dato tomado de REPSE o DENUE: no se pierde si el sitio no lo publica
             if previo.get(c + "_fuente") and not nuevo.get(c):
@@ -1081,6 +1085,7 @@ def ejecutar(motor="auto", estados=None, hilos=12, min_relevancia=25, salida=SAL
     except Exception as e:
         perfil["denue_error"] = str(e)[:160]
     print("DENUE: %s" % perfil)
+    perfil.update(confianza.padrones(base))
     repse_ok, repse_fallas = repse_todas(base)
     print("REPSE: %d validadas, %d sin respuesta" % (repse_ok, repse_fallas))
     perfil.update(confianza.perfilar(base))
